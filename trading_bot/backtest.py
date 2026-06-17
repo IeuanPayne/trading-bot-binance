@@ -1,21 +1,24 @@
 import pandas as pd
 from loguru import logger
-from typing import List, Dict
+from typing import Any, List, Dict
+
 from .metrics import compute_trade_metrics
 from .risk import position_size_by_risk
 
 
 def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(period, min_periods=period).mean()
-    avg_loss = loss.rolling(period, min_periods=period).mean()
-    rs = avg_gain / avg_loss
+    """Calculate RSI indicator."""
+    delta: pd.Series = series.diff()
+    gain: pd.Series = delta.clip(lower=0)
+    loss: pd.Series = -delta.clip(upper=0)
+    avg_gain: pd.Series = gain.rolling(period, min_periods=period).mean()
+    avg_loss: pd.Series = loss.rolling(period, min_periods=period).mean()
+    rs: pd.Series = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
 
 def prepare_ema_rsi_signals(df: pd.DataFrame, ema_fast: int = 9, ema_slow: int = 21, rsi_period: int = 14) -> pd.DataFrame:
+    """Prepare EMA and RSI signals on OHLC dataframe."""
     df = df.copy().reset_index(drop=True)
     df["ema_fast"] = df["close"].ewm(span=ema_fast, adjust=False).mean()
     df["ema_slow"] = df["close"].ewm(span=ema_slow, adjust=False).mean()
@@ -44,7 +47,7 @@ def emarsi_backtest(
     stop_pips: float = 0.7,
     initial_capital: float = 10000.0,
     pct_per_trade: float = 0.01,
-) -> Dict:
+) -> Dict[str, Any]:
     df = prepare_ema_rsi_signals(df, ema_fast=ema_fast, ema_slow=ema_slow, rsi_period=rsi_period)
 
     cash = initial_capital

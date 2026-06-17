@@ -12,7 +12,7 @@ def test_bot_main_calls_backtest_by_default(monkeypatch):
     monkeypatch.setattr("sys.argv", args)
     called = {"backtest": False}
 
-    def fake_run_backtest(symbol, interval, limit, fast, slow, rsi_period):
+    def fake_run_backtest(symbol, interval, limit, fast, slow, rsi_period, export_report=False):
         called["backtest"] = True
         assert symbol == "BTCUSDT"
         assert interval == "15m"
