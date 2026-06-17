@@ -1,0 +1,7 @@
+python-binance==1.0.16
+ccxt==4.0.96
+pandas>=1.5
+numpy>=1.23
+loguru>=0.7.0
+python-dotenv>=0.21
+pytest

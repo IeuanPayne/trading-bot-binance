@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-bot"
+version = "0.1.0"
+description = "Binance EMA/RSI trading bot with backtesting and paper trading support."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "python-binance==1.0.16",
+    "ccxt==4.0.96",
+    "pandas>=1.5",
+    "numpy>=1.23",
+    "loguru>=0.7.0",
+    "python-dotenv>=1.2.2",
+    "pytest",
+]
+
+[project.urls]
+Home = "https://example.com"
+
+[tool.setuptools]
+packages = ["trading_bot"]
