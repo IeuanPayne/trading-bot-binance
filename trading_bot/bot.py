@@ -4,6 +4,7 @@ logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG
 from .binance_connector import BinanceConnector
 from .backtest import emarsi_backtest
 from .execution import run_paper_trade
+from .grid_backtest import run_grid_backtest, print_grid_summary
 from .config import INITIAL_CAPITAL, MAX_PCT_PER_TRADE
 
 
@@ -41,10 +42,11 @@ def main():
     parser.add_argument("--fast", type=int, default=9)
     parser.add_argument("--slow", type=int, default=21)
     parser.add_argument("--rsi-period", type=int, default=14)
-    parser.add_argument("--mode", choices=["backtest", "paper"], default="backtest")
+    parser.add_argument("--mode", choices=["backtest", "paper", "grid-backtest"], default="backtest")
     parser.add_argument("--order-pct", type=float, default=MAX_PCT_PER_TRADE)
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--disable-oco", action="store_true")
+    parser.add_argument("--output", type=str, help="CSV output file for grid backtest results")
     args = parser.parse_args()
 
     if args.mode == "paper":
@@ -59,6 +61,14 @@ def main():
             stop_pips=args.stop_pips,
             disable_oco=args.disable_oco,
         )
+    elif args.mode == "grid-backtest":
+        results = run_grid_backtest(
+            symbol=args.symbol,
+            limit=args.limit,
+            rsi_period=args.rsi_period,
+            output_file=args.output,
+        )
+        print_grid_summary(results)
     else:
         run_backtest(args.symbol, args.interval, args.limit, args.fast, args.slow, args.rsi_period)
 
