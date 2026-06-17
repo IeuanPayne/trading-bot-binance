@@ -5,10 +5,11 @@ from .binance_connector import BinanceConnector
 from .backtest import emarsi_backtest
 from .execution import run_paper_trade
 from .grid_backtest import run_grid_backtest, print_grid_summary
+from .metrics_persistence import HTMLReportGenerator, TradeHistoryExporter
 from .config import INITIAL_CAPITAL, MAX_PCT_PER_TRADE
 
 
-def run_backtest(symbol: str, interval: str = "15m", limit: int = 500, fast: int = 9, slow: int = 21, rsi_period: int = 14):
+def run_backtest(symbol: str, interval: str = "15m", limit: int = 500, fast: int = 9, slow: int = 21, rsi_period: int = 14, export_report: bool = False):
     c = BinanceConnector()
     df = c.fetch_klines(symbol, interval, limit)
     if df.empty:
@@ -32,6 +33,20 @@ def run_backtest(symbol: str, interval: str = "15m", limit: int = 500, fast: int
     )
     logger.debug("Trades: {}", results["trades"])
     logger.info("Metrics: {}", results.get("metrics"))
+    
+    # Export report if requested
+    if export_report:
+        trades = results.get("trades", [])
+        metrics = results.get("metrics", {})
+        report_file = HTMLReportGenerator.generate_report(
+            symbol=symbol,
+            ema_fast=fast,
+            ema_slow=slow,
+            timeframe=interval,
+            metrics=metrics,
+            trades=trades,
+        )
+        logger.info("HTML report generated: {}", report_file)
 
 
 def main():
@@ -47,6 +62,7 @@ def main():
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--disable-oco", action="store_true")
     parser.add_argument("--output", type=str, help="CSV output file for grid backtest results")
+    parser.add_argument("--export-report", action="store_true", help="Generate HTML report for backtest")
     args = parser.parse_args()
 
     if args.mode == "paper":
@@ -70,7 +86,7 @@ def main():
         )
         print_grid_summary(results)
     else:
-        run_backtest(args.symbol, args.interval, args.limit, args.fast, args.slow, args.rsi_period)
+        run_backtest(args.symbol, args.interval, args.limit, args.fast, args.slow, args.rsi_period, export_report=args.export_report)
 
 
 if __name__ == "__main__":

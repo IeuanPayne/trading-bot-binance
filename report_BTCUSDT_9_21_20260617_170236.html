@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backtest Report - BTCUSDT 9/21 15m</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+        }
+        .header {
+            background-color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .header-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .header-item {
+            display: flex;
+            justify-content: space-between;
+        }
+        .metrics-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .metrics-table th {
+            background-color: #34495e;
+            color: white;
+            padding: 10px;
+            text-align: left;
+        }
+        .metrics-table td {
+            border: 1px solid #bdc3c7;
+            padding: 8px;
+        }
+        .metrics-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .metrics-table tr:hover {
+            background-color: #ecf0f1;
+        }
+        .trades-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        .trades-table th {
+            background-color: #27ae60;
+            color: white;
+            padding: 10px;
+            text-align: left;
+        }
+        .trades-table td {
+            border: 1px solid #bdc3c7;
+            padding: 8px;
+        }
+        .trades-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .trades-table tr:hover {
+            background-color: #ecf0f1;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 10px;
+            border-top: 1px solid #bdc3c7;
+            color: #7f8c8d;
+            font-size: 12px;
+        }
+        .stat-box {
+            display: inline-block;
+            margin: 10px 10px 0 0;
+            padding: 10px 15px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+        .stat-value {
+            font-weight: bold;
+            font-size: 18px;
+            color: #2c3e50;
+        }
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Backtest Report: BTCUSDT</h1>
+        
+        <div class="header">
+            <div class="header-info">
+                <div class="header-item">
+                    <strong>Strategy:</strong> EMA9/21 + RSI14
+                </div>
+                <div class="header-item">
+                    <strong>Timeframe:</strong> 15m
+                </div>
+                <div class="header-item">
+                    <strong>Generated:</strong> 2026-06-17 17:02:36
+                </div>
+            </div>
+        </div>
+        
+        <h2>Key Metrics</h2>
+        <div>
+            <div class="stat-box">
+                <div class="stat-label">Total Trades</div>
+                <div class="stat-value">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Win Rate</div>
+                <div class="stat-value">0.0%</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Total PnL</div>
+                <div class="stat-value" style="color: red;">
+                    $-0.0032
+                </div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Avg Return</div>
+                <div class="stat-value">-0.11%</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Max Drawdown</div>
+                <div class="stat-value">0.00%</div>
+            </div>
+        </div>
+        
+        <h2>Detailed Metrics</h2>
+        <table class="metrics-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>total_pnl</td><td>-0.0032</td></tr>
+<tr><td>win_rate</td><td>0.0000</td></tr>
+<tr><td>avg_return</td><td>-0.0011</td></tr>
+<tr><td>max_drawdown</td><td>0.0000</td></tr>
+<tr><td>num_pairs</td><td>3</td></tr>
+
+            </tbody>
+        </table>
+        
+        <h2>Trade Details</h2>
+        <table class="trades-table">
+            <thead>
+                <tr>
+                    <th>Entry Time</th>
+                    <th>Exit Time</th>
+                    <th>Entry Price</th>
+                    <th>Exit Price</th>
+                    <th>PnL</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+<td>N/A</td>
+<td>N/A</td>
+<td>0.00</td>
+<td>0.00</td>
+<td><span style="color: green;">$0.0000 (0.00%)</span></td>
+</tr>
+<tr>
+<td>N/A</td>
+<td>N/A</td>
+<td>0.00</td>
+<td>0.00</td>
+<td><span style="color: green;">$0.0000 (0.00%)</span></td>
+</tr>
+<tr>
+<td>N/A</td>
+<td>N/A</td>
+<td>0.00</td>
+<td>0.00</td>
+<td><span style="color: green;">$0.0000 (0.00%)</span></td>
+</tr>
+<tr>
+<td>N/A</td>
+<td>N/A</td>
+<td>0.00</td>
+<td>0.00</td>
+<td><span style="color: green;">$0.0000 (0.00%)</span></td>
+</tr>
+<tr>
+<td>N/A</td>
+<td>N/A</td>
+<td>0.00</td>
+<td>0.00</td>
+<td><span style="color: green;">$0.0000 (0.00%)</span></td>
+</tr>
+<tr>
+<td>N/A</td>
+<td>N/A</td>
+<td>0.00</td>
+<td>0.00</td>
+<td><span style="color: green;">$0.0000 (0.00%)</span></td>
+</tr>
+
+            </tbody>
+        </table>
+        
+        <div class="footer">
+            <p>Generated by trading-bot-binance v1.0</p>
+        </div>
+    </div>
+</body>
+</html>
