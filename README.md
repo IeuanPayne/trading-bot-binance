@@ -275,6 +275,47 @@ make test
 tail -f trading_bot.log
 ```
 
+## Controlled Soak Test (Testnet 24-72h)
+
+Use this to validate long-running stability before real-capital rollout.
+
+### 1. Pre-flight
+
+Ensure:
+
+- `BINANCE_TESTNET=True`
+- `ALLOW_LIVE_TRADING=False`
+- API keys are valid (`make check-keys`)
+- Optional SMS alerting is configured for failures/breakers
+
+### 2. Run 24h soak test
+
+```bash
+make soak-test
+```
+
+Equivalent explicit command:
+
+```bash
+PYTHONPATH=$(pwd) .venv/bin/python3 scripts/soak_test.py \
+  --symbol BTCUSDT --interval 15m --duration-hours 24 --run-now
+```
+
+### 3. Extend to 72h
+
+```bash
+PYTHONPATH=$(pwd) .venv/bin/python3 scripts/soak_test.py \
+  --symbol BTCUSDT --interval 15m --duration-hours 72 --run-now
+```
+
+### 4. Monitor during soak
+
+```bash
+tail -f trading_bot.log
+```
+
+Risk/position persistence is stored in `trading_state.db`.
+
 ## Binance Testnet
 
 1. **Get Testnet Credentials**:

@@ -2,7 +2,7 @@ VENV=.venv
 PYTHON=$(VENV)/bin/python3
 PIP=$(VENV)/bin/pip
 
-.PHONY: help setup install test backtest paper check-keys grid-backtest
+.PHONY: help setup install test backtest paper check-keys grid-backtest soak-test
 
 help:
 	@echo "Usage: make <target>"
@@ -14,6 +14,7 @@ help:
 	@echo "  paper          Run paper trading mode against Binance testnet."
 	@echo "  check-keys     Validate Binance API keys and fetch balances."
 	@echo "  grid-backtest  Run grid backtest (test EMA/timeframe combos)."
+	@echo "  soak-test      Run controlled 24h paper-trading soak test loop."
 
 setup:
 	python3 -m venv $(VENV)
@@ -37,3 +38,6 @@ check-keys:
 
 grid-backtest:
 	PYTHONPATH=$(PWD) $(PYTHON) -m trading_bot.bot --mode grid-backtest --symbol BTCUSDT --limit 1000
+
+soak-test:
+	PYTHONPATH=$(PWD) $(PYTHON) scripts/soak_test.py --symbol BTCUSDT --interval 15m --duration-hours 24 --run-now
