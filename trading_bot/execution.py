@@ -10,8 +10,9 @@ from .state_store import TradingStateStore
 
 # Strategy contract: Gold EMA Trend + RSI Filter (single-layer logic)
 # Long: EMA9/EMA21 bullish crossover with RSI14 in (50, 70).
-# Short signal (spot handling): EMA9/EMA21 bearish crossover with RSI14 in (30, 50)
-# closes existing long exposure.
+# Short: EMA9/EMA21 bearish crossover with RSI14 in (30, 50).
+# Spot accounts cannot open native shorts, so paper mode models short lifecycle
+# synthetically (entry/stop/tp/opposite-signal close) in persisted state.
 # Risk exits: stop_pips is absolute price distance (default 0.7), with 1:1 TP.
 from .config import (
     BINANCE_API_KEY,
@@ -107,6 +108,20 @@ def run_paper_trade(
 
     logger.info("Latest candle close={} long_signal={} short_signal={}", latest["close"], long_signal, short_signal)
     logger.info("Balances: {} free={}, {} free={}", quote_asset, quote_free, base_asset, base_free)
+
+    active_position = state_store.get_position(symbol)
+    if active_position and active_position.get("side") == "SHORT":
+        close_reason, close_price = _evaluate_short_exit(active_position, latest, long_signal)
+        if close_reason is not None and close_price is not None:
+            logger.info("Closing synthetic short for {} due to {} at price={}", symbol, close_reason, close_price)
+            _record_exit_risk_metrics(state_store, symbol, close_price)
+            state_store.clear_position(symbol)
+            state_store.mark_signal_processed(
+                symbol,
+                signal_id,
+                {"action": "cover", "reason": close_reason, "price": close_price},
+            )
+            return
 
     current_equity = _current_equity(quote_free, base_free, _safe_float(latest["close"]))
     risk_state = _load_risk_state(state_store, current_equity)
@@ -239,7 +254,44 @@ def run_paper_trade(
 
     if short_signal:
         if base_free <= 0:
-            logger.info("Spot accounts cannot open short positions in this version. No action taken.")
+            entry_price = _safe_float(connector.get_symbol_price(symbol).get("price", 0.0))
+            if entry_price <= 0:
+                logger.error("Unable to determine entry price for synthetic short on {}", symbol)
+                return
+
+            allocation = quote_free * order_pct
+            if allocation <= 0:
+                logger.error("No available {} quote balance to model a short position.", quote_asset)
+                return
+
+            quantity = calculate_order_quantity(connector, symbol, allocation, entry_price)
+            stop_price = connector.round_price(symbol, entry_price + stop_pips)
+            take_profit = connector.round_price(symbol, entry_price - stop_pips)
+            position = {
+                "side": "SHORT",
+                "qty": quantity,
+                "entry_price": entry_price,
+                "stop_price": stop_price,
+                "take_profit": take_profit,
+                "entry_mode": "synthetic",
+                "updated_at": latest_close_time,
+            }
+            state_store.set_position(symbol, position)
+            risk_state["trades_today"] = int(risk_state.get("trades_today", 0)) + 1
+            state_store.set_runtime_state("risk_state", risk_state)
+            state_store.mark_signal_processed(
+                symbol,
+                signal_id,
+                {"action": "sell_short", "qty": quantity, "entry_price": entry_price},
+            )
+            logger.info(
+                "Synthetic short opened for {} qty={} entry={} stop={} tp={}",
+                symbol,
+                quantity,
+                entry_price,
+                stop_price,
+                take_profit,
+            )
             return
 
         is_valid, reason = connector.validate_market_order(symbol, base_free, latest["close"])
@@ -345,7 +397,11 @@ def _record_exit_risk_metrics(state_store: TradingStateStore, symbol: str, exit_
     if qty <= 0 or entry_price <= 0 or exit_price <= 0:
         return
 
-    pnl = (exit_price - entry_price) * qty
+    side = str(position.get("side", "LONG")).upper()
+    if side == "SHORT":
+        pnl = (entry_price - exit_price) * qty
+    else:
+        pnl = (exit_price - entry_price) * qty
     risk_state = state_store.get_runtime_state("risk_state", default={}) or {}
     if risk_state.get("day") != _today_key():
         # Keep daily boundaries consistent even if called after midnight rollover.
@@ -357,6 +413,23 @@ def _record_exit_risk_metrics(state_store: TradingStateStore, symbol: str, exit_
     else:
         risk_state["consecutive_losses"] = 0
     state_store.set_runtime_state("risk_state", risk_state)
+
+
+def _evaluate_short_exit(position: dict, latest, long_signal: bool) -> tuple[str | None, float | None]:
+    """Evaluate synthetic short exits against the latest closed candle."""
+    stop_price = _safe_float(position.get("stop_price", 0.0))
+    take_profit = _safe_float(position.get("take_profit", 0.0))
+    high = _safe_float(latest.get("high", 0.0))
+    low = _safe_float(latest.get("low", 0.0))
+    close = _safe_float(latest.get("close", 0.0))
+
+    if stop_price > 0 and high >= stop_price:
+        return "tp/sl", stop_price
+    if take_profit > 0 and low <= take_profit:
+        return "tp/sl", take_profit
+    if long_signal and close > 0:
+        return "opposite_signal", close
+    return None, None
 
 
 def run_paper_backtest(

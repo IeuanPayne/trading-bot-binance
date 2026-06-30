@@ -198,11 +198,73 @@ def test_run_paper_trade_short_signal_closes_position(monkeypatch, tmp_path):
         return signals
 
     monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
-    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=str(tmp_path / "state.json"))
+    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=str(tmp_path / "state.db"))
 
+    # Existing base balance should still be closed with a real SELL on short signal.
     assert len(fake.market_orders) == 1
     assert fake.market_orders[0]["side"] == "SELL"
     assert fake.market_orders[0]["client_order_id"].startswith("tb_sell_")
+
+
+def test_run_paper_trade_short_signal_opens_synthetic_short(monkeypatch, tmp_path):
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_KEY", "key")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_TESTNET", True)
+
+    fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
+    monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
+
+    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+        signals = df.copy()
+        signals["long_signal"] = [False] * len(df)
+        signals["short_signal"] = [False] * (len(df) - 1) + [True]
+        return signals
+
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+    state_file = str(tmp_path / "state.db")
+    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
+
+    store = TradingStateStore(state_file)
+    position = store.get_position("BTCUSDT")
+    assert position is not None
+    assert position["side"] == "SHORT"
+    assert position["entry_mode"] == "synthetic"
+    assert position["stop_price"] == pytest.approx(50.7)
+    assert position["take_profit"] == pytest.approx(49.3)
+
+
+def test_run_paper_trade_closes_synthetic_short_on_opposite_signal(monkeypatch, tmp_path):
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_KEY", "key")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_TESTNET", True)
+
+    fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
+    monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
+
+    def short_signals(df, ema_fast, ema_slow, rsi_period):
+        signals = df.copy()
+        signals["long_signal"] = [False] * len(df)
+        signals["short_signal"] = [False] * (len(df) - 1) + [True]
+        return signals
+
+    state_file = str(tmp_path / "state.db")
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", short_signals)
+    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
+
+    def long_signals(df, ema_fast, ema_slow, rsi_period):
+        signals = df.copy()
+        signals["long_signal"] = [False] * (len(df) - 1) + [True]
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", long_signals)
+    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
+
+    store = TradingStateStore(state_file)
+    assert store.get_position("BTCUSDT") is None
+
+    # Synthetic short lifecycle should not place spot market orders.
+    assert len(fake.market_orders) == 0
 
 
 def test_submit_with_retry_succeeds_after_transient_error(monkeypatch):

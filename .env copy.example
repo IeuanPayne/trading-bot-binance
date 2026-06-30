@@ -1,0 +1,21 @@
+# Copy to .env and fill values for live/paper execution
+BINANCE_API_KEY=
+BINANCE_API_SECRET=
+# Set to 'True' to use testnet endpoints (paper trading)
+BINANCE_TESTNET=True
+# Safety gate: must be True before any live order is allowed when BINANCE_TESTNET=False
+ALLOW_LIVE_TRADING=False
+
+# Risk circuit breakers (0 disables each breaker)
+MAX_DAILY_LOSS_USDT=0
+MAX_DRAWDOWN_PCT=0
+MAX_CONSECUTIVE_LOSSES=0
+MAX_TRADES_PER_DAY=0
+
+# Optional SMS alerting (Twilio)
+ALERTS_ENABLED=False
+ALERT_SMS_PROVIDER=twilio
+ALERT_PHONE_TO=
+ALERT_PHONE_FROM=
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
