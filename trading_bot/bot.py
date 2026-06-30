@@ -6,7 +6,7 @@ from .backtest import emarsi_backtest
 from .execution import run_paper_trade
 from .grid_backtest import run_grid_backtest, print_grid_summary
 from .metrics_persistence import HTMLReportGenerator, TradeHistoryExporter
-from .config import INITIAL_CAPITAL, MAX_PCT_PER_TRADE
+from .config import INITIAL_CAPITAL, MAX_PCT_PER_TRADE, validate_runtime_args
 
 
 def run_backtest(symbol: str, interval: str = "15m", limit: int = 500, fast: int = 9, slow: int = 21, rsi_period: int = 14, export_report: bool = False):
@@ -64,6 +64,11 @@ def main():
     parser.add_argument("--output", type=str, help="CSV output file for grid backtest results")
     parser.add_argument("--export-report", action="store_true", help="Generate HTML report for backtest")
     args = parser.parse_args()
+
+    try:
+        validate_runtime_args(args.mode, args.order_pct, args.stop_pips)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if args.mode == "paper":
         run_paper_trade(

@@ -5,6 +5,12 @@ from typing import Any, List, Dict
 from .metrics import compute_trade_metrics
 from .risk import position_size_by_risk
 
+# Strategy contract: Gold EMA Trend + RSI Filter (single-layer logic)
+# Entry long: EMA9 cross above EMA21 and 50 < RSI14 < 70.
+# Entry short: EMA9 cross below EMA21 and 30 < RSI14 < 50.
+# Exits: fixed 70 pip distance (stop_pips=0.7 absolute price units),
+# with 1:1 take-profit and optional opposite-signal close.
+
 
 def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     """Calculate RSI indicator."""
@@ -48,6 +54,9 @@ def emarsi_backtest(
     initial_capital: float = 10000.0,
     pct_per_trade: float = 0.01,
 ) -> Dict[str, Any]:
+    if stop_pips <= 0:
+        raise ValueError("stop_pips must be > 0 and represents an absolute price distance (e.g. 0.7)")
+
     df = prepare_ema_rsi_signals(df, ema_fast=ema_fast, ema_slow=ema_slow, rsi_period=rsi_period)
 
     cash = initial_capital
@@ -108,8 +117,9 @@ def emarsi_backtest(
                 position = allocation / entry_price
                 cash -= allocation
                 direction = 1
-                stop_price = entry_price - stop_pips
-                take_profit = entry_price + stop_pips
+                stop_distance = stop_pips
+                stop_price = entry_price - stop_distance
+                take_profit = entry_price + stop_distance
                 trades.append({"type": "buy", "index": i + 1, "price": entry_price, "qty": position, "reason": "long_entry"})
             elif df.loc[i, "short_signal"]:
                 entry_price = df.loc[i + 1, "open"]
@@ -117,8 +127,9 @@ def emarsi_backtest(
                 position = allocation / entry_price
                 cash += allocation
                 direction = -1
-                stop_price = entry_price + stop_pips
-                take_profit = entry_price - stop_pips
+                stop_distance = stop_pips
+                stop_price = entry_price + stop_distance
+                take_profit = entry_price - stop_distance
                 trades.append({"type": "sell_short", "index": i + 1, "price": entry_price, "qty": position, "reason": "short_entry"})
 
     if direction != 0:

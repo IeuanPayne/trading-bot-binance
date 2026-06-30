@@ -203,6 +203,9 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Bot runtime state
+trading_state.json
+
 # Ruff stuff:
 .ruff_cache/
 

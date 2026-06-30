@@ -1,9 +1,23 @@
 import math
+import time
 from loguru import logger
 
 from .binance_connector import BinanceConnector
 from .backtest import emarsi_backtest, prepare_ema_rsi_signals
-from .config import BINANCE_API_KEY, BINANCE_API_SECRET, BINANCE_TESTNET, MAX_PCT_PER_TRADE
+from .state_store import TradingStateStore
+
+# Strategy contract: Gold EMA Trend + RSI Filter (single-layer logic)
+# Long: EMA9/EMA21 bullish crossover with RSI14 in (50, 70).
+# Short signal (spot handling): EMA9/EMA21 bearish crossover with RSI14 in (30, 50)
+# closes existing long exposure.
+# Risk exits: stop_pips is absolute price distance (default 0.7), with 1:1 TP.
+from .config import (
+    BINANCE_API_KEY,
+    BINANCE_API_SECRET,
+    BINANCE_TESTNET,
+    ALLOW_LIVE_TRADING,
+    MAX_PCT_PER_TRADE,
+)
 
 
 def _symbol_assets(symbol: str) -> tuple[str, str]:
@@ -37,13 +51,23 @@ def run_paper_trade(
     order_pct: float = MAX_PCT_PER_TRADE,
     stop_pips: float = 0.7,
     disable_oco: bool = False,
+    state_file: str = "trading_state.json",
 ):
     if not BINANCE_API_KEY or not BINANCE_API_SECRET:
         logger.error("Paper trading requires BINANCE_API_KEY and BINANCE_API_SECRET in .env")
         return
 
-    if not BINANCE_TESTNET:
-        logger.warning("BINANCE_TESTNET is disabled; paper trading will still attempt live spot orders.")
+    if not BINANCE_TESTNET and not ALLOW_LIVE_TRADING:
+        logger.error(
+            "Refusing to place live orders with BINANCE_TESTNET=False. Set ALLOW_LIVE_TRADING=True to explicitly enable live trading."
+        )
+        return
+    if not BINANCE_TESTNET and ALLOW_LIVE_TRADING:
+        logger.warning("Live trading is enabled (BINANCE_TESTNET=False and ALLOW_LIVE_TRADING=True).")
+
+    if stop_pips <= 0:
+        logger.error("stop_pips must be greater than zero and is interpreted as absolute price distance (e.g. 0.7).")
+        return
 
     connector = BinanceConnector(
         api_key=BINANCE_API_KEY,
@@ -55,6 +79,8 @@ def run_paper_trade(
         logger.error("Authenticated Binance client is unavailable. Install python-binance and set API keys.")
         return
 
+    state_store = TradingStateStore(state_file)
+
     df = connector.fetch_klines(symbol, interval, limit)
     if df.empty:
         logger.error("No candle data available for {}", symbol)
@@ -64,6 +90,8 @@ def run_paper_trade(
     latest = signals.iloc[-1]
     long_signal = bool(latest["long_signal"])
     short_signal = bool(latest["short_signal"])
+    latest_close_time = str(latest.get("close_time"))
+    signal_id = f"{latest_close_time}:{int(long_signal)}:{int(short_signal)}"
 
     base_asset, quote_asset = _symbol_assets(symbol)
     quote_balance = connector.get_asset_balance(quote_asset)
@@ -73,6 +101,10 @@ def run_paper_trade(
 
     logger.info("Latest candle close={} long_signal={} short_signal={}", latest["close"], long_signal, short_signal)
     logger.info("Balances: {} free={}, {} free={}", quote_asset, quote_free, base_asset, base_free)
+
+    if state_store.is_signal_processed(symbol, signal_id):
+        logger.info("Signal already processed for {} at {}. Skipping duplicate execution.", symbol, latest_close_time)
+        return
 
     if long_signal:
         if base_free > 0:
@@ -90,26 +122,51 @@ def run_paper_trade(
             return
 
         quantity = calculate_order_quantity(connector, symbol, allocation, entry_price)
+        is_valid, reason = connector.validate_market_order(symbol, quantity, entry_price)
+        if not is_valid:
+            logger.error("Pre-trade validation failed for {} BUY qty={}: {}", symbol, quantity, reason)
+            return
         logger.info("Placing market buy for {} qty={} at price={} (allocation={} {} )", symbol, quantity, entry_price, allocation, quote_asset)
-        order = connector.create_market_order(symbol, side="BUY", quantity=quantity)
+        order = _submit_with_retry(
+            connector.create_market_order,
+            symbol=symbol,
+            side="BUY",
+            quantity=quantity,
+            action="market buy",
+        )
         logger.info("Market order response: {}", order)
 
+        position = {
+            "side": "LONG",
+            "qty": quantity,
+            "entry_price": entry_price,
+            "entry_order": order,
+            "updated_at": latest_close_time,
+        }
+
         if not disable_oco:
-            stop_price = round(entry_price - stop_pips, 8)
-            take_profit = round(entry_price + stop_pips, 8)
-            stop_limit_price = round(stop_price * 0.999, 8)
+            stop_distance = stop_pips
+            stop_price = connector.round_price(symbol, entry_price - stop_distance)
+            take_profit = connector.round_price(symbol, entry_price + stop_distance)
+            stop_limit_price = connector.round_price(symbol, stop_price * 0.999)
             try:
-                oco = connector.create_oco_order(
+                oco = _submit_with_retry(
+                    connector.create_oco_order,
                     symbol=symbol,
                     side="SELL",
                     quantity=quantity,
                     price=take_profit,
                     stop_price=stop_price,
                     stop_limit_price=stop_limit_price,
+                    action="oco create",
                 )
+                position["oco"] = oco
                 logger.info("OCO stop-loss/take-profit order created: {}", oco)
             except Exception as exc:
                 logger.warning("Failed to create OCO order: {}", exc)
+
+        state_store.set_position(symbol, position)
+        state_store.mark_signal_processed(symbol, signal_id, {"action": "buy", "qty": quantity})
 
         return
 
@@ -118,12 +175,42 @@ def run_paper_trade(
             logger.info("Spot accounts cannot open short positions in this version. No action taken.")
             return
 
+        is_valid, reason = connector.validate_market_order(symbol, base_free, latest["close"])
+        if not is_valid:
+            logger.error("Pre-trade validation failed for {} SELL qty={}: {}", symbol, base_free, reason)
+            return
+
         logger.info("Short signal detected, closing existing long position for {}", base_asset)
-        order = connector.create_market_order(symbol, side="SELL", quantity=base_free)
+        order = _submit_with_retry(
+            connector.create_market_order,
+            symbol=symbol,
+            side="SELL",
+            quantity=base_free,
+            action="market sell",
+        )
         logger.info("Market sell response: {}", order)
+        state_store.clear_position(symbol)
+        state_store.mark_signal_processed(symbol, signal_id, {"action": "sell", "qty": base_free})
         return
 
     logger.info("No actionable signal in the latest candle for {}", symbol)
+
+
+def _submit_with_retry(fn, retries: int = 3, initial_delay: float = 0.5, action: str = "order", **kwargs):
+    """Retry transient order failures with exponential backoff."""
+    delay = initial_delay
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            return fn(**kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if attempt == retries:
+                break
+            logger.warning("{} failed (attempt {}/{}): {}. Retrying in {}s.", action, attempt, retries, exc, delay)
+            time.sleep(delay)
+            delay *= 2
+    raise RuntimeError(f"{action} failed after {retries} attempts: {last_exc}")
 
 
 def run_paper_backtest(

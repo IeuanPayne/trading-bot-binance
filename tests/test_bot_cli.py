@@ -49,6 +49,20 @@ def test_bot_main_calls_paper_mode(monkeypatch):
     assert called["paper"]
 
 
+def test_bot_main_rejects_invalid_order_pct(monkeypatch):
+    args = [
+        "trading_bot.bot",
+        "--mode",
+        "paper",
+        "--order-pct",
+        "2",
+    ]
+    monkeypatch.setattr("sys.argv", args)
+
+    with pytest.raises(SystemExit):
+        main()
+
+
 def test_bot_main_backtest_smoke_runs_real_backtest(monkeypatch):
     args = ["trading_bot.bot", "--mode", "backtest", "--symbol", "BTCUSDT", "--interval", "15m", "--limit", "10"]
     monkeypatch.setattr("sys.argv", args)

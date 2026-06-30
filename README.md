@@ -38,6 +38,7 @@ Then edit `.env` with your Binance testnet credentials (get them from [Binance T
 BINANCE_API_KEY=your_testnet_api_key
 BINANCE_API_SECRET=your_testnet_api_secret
 BINANCE_TESTNET=True
+ALLOW_LIVE_TRADING=False
 INITIAL_CAPITAL=10000
 MAX_PCT_PER_TRADE=2
 ```
@@ -116,6 +117,7 @@ trading-bot-binance/
 | `BINANCE_API_KEY` | `xxxxx` | Binance testnet API key |
 | `BINANCE_API_SECRET` | `xxxxx` | Binance testnet API secret |
 | `BINANCE_TESTNET` | `True` | Set to `True` for testnet, `False` for live (not recommended) |
+| `ALLOW_LIVE_TRADING` | `False` | Must be `True` to allow live orders when `BINANCE_TESTNET=False` |
 | `INITIAL_CAPITAL` | `10000` | Starting capital in USDT |
 | `MAX_PCT_PER_TRADE` | `2` | Max percentage of capital per trade (%) |
 
@@ -147,7 +149,7 @@ All backtest arguments, plus:
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--order-pct` | `2` | Percentage of capital per order (%) |
-| `--stop-pips` | `0.7` | Stop-loss distance in percentage (%) |
+| `--stop-pips` | `0.7` | Stop-loss/take-profit distance in absolute price units (70 pips) |
 | `--disable-oco` | `False` | Disable OCO orders (if set, only market orders) |
 
 ## Strategy: EMA9/EMA21 + RSI14 Filter
