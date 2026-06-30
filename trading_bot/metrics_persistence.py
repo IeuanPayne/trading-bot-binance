@@ -60,7 +60,7 @@ class MetricsSnapshot:
         self.ema_fast = ema_fast
         self.ema_slow = ema_slow
         self.timestamp = datetime.now().isoformat()
-        self.metrics = {}
+        self.metrics: Dict[str, Any] = {}
     
     def record_metrics(self, metrics: Dict[str, Any]) -> None:
         """Record backtest metrics."""
@@ -92,8 +92,8 @@ class HTMLReportGenerator:
         ema_slow: int,
         timeframe: str,
         metrics: Dict[str, Any],
-        trades: List[Dict[str, Any]] = None,
-        output_file: str = None,
+        trades: List[Dict[str, Any]] | None = None,
+        output_file: str | None = None,
     ) -> str:
         """Generate HTML report.
         

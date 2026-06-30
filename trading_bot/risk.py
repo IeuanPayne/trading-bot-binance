@@ -1,6 +1,3 @@
-from typing import Optional
-
-
 def position_size_by_risk(
     capital: float,
     risk_per_trade: float,

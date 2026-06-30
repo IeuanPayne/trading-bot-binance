@@ -13,7 +13,7 @@ from loguru import logger
 # import after load_dotenv to allow module-level env usage
 load_dotenv(find_dotenv())
 
-from trading_bot.binance_connector import BinanceConnector
+from trading_bot.binance_connector import BinanceConnector  # noqa: E402
 
 
 def main():

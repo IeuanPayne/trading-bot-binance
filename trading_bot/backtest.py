@@ -1,9 +1,7 @@
 import pandas as pd
-from loguru import logger
 from typing import Any, List, Dict
 
 from .metrics import compute_trade_metrics
-from .risk import position_size_by_risk
 
 # Strategy contract: Gold EMA Trend + RSI Filter (single-layer logic)
 # Entry long: EMA9 cross above EMA21 and 50 < RSI14 < 70.

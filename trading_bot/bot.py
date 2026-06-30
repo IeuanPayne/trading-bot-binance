@@ -1,12 +1,14 @@
 import argparse
 from loguru import logger
-logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
+
 from .binance_connector import BinanceConnector
 from .backtest import emarsi_backtest
 from .execution import run_paper_trade
 from .grid_backtest import run_grid_backtest, print_grid_summary
-from .metrics_persistence import HTMLReportGenerator, TradeHistoryExporter
+from .metrics_persistence import HTMLReportGenerator
 from .config import INITIAL_CAPITAL, MAX_PCT_PER_TRADE, validate_runtime_args
+
+logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
 
 
 def run_backtest(symbol: str, interval: str = "15m", limit: int = 500, fast: int = 9, slow: int = 21, rsi_period: int = 14, export_report: bool = False):

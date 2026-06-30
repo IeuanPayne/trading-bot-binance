@@ -23,3 +23,13 @@ Home = "https://example.com"
 
 [tool.setuptools]
 packages = ["trading_bot"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.10"
+files = ["trading_bot"]
+ignore_missing_imports = true
+show_error_codes = true

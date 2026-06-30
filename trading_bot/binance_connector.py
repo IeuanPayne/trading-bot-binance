@@ -46,15 +46,16 @@ class BinanceConnector:
         Returns:
             DataFrame with columns: open_time, open, high, low, close, volume, close_time
         """
+        raw_data: list
         if self.client:
-            data = self.client.get_klines(symbol=symbol, interval=interval, limit=limit)
+            raw_data = self.client.get_klines(symbol=symbol, interval=interval, limit=limit)
         else:
             endpoint: str = f"{self.base}/api/v3/klines"
             params: Dict[str, Any] = {"symbol": symbol, "interval": interval, "limit": limit}
             logger.debug("Requesting klines: {}", params)
             r: requests.Response = requests.get(endpoint, params=params, timeout=10)
             r.raise_for_status()
-            data: list = r.json()
+            raw_data = r.json()
 
         cols: list = [
             "open_time",
@@ -70,7 +71,7 @@ class BinanceConnector:
             "ignore4",
             "ignore5",
         ]
-        df: pd.DataFrame = pd.DataFrame(data, columns=cols)
+        df: pd.DataFrame = pd.DataFrame(raw_data, columns=cols)
         df = df[["open_time", "open", "high", "low", "close", "volume", "close_time"]]
         df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
         df["close_time"] = pd.to_datetime(df["close_time"], unit="ms")

@@ -1,5 +1,3 @@
-import sys
-
 from trading_bot.binance_connector import BinanceConnector
 
 

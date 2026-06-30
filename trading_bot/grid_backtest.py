@@ -3,6 +3,7 @@ import csv
 from pathlib import Path
 from datetime import datetime
 from loguru import logger
+from typing import Optional
 
 from .binance_connector import BinanceConnector
 from .backtest import emarsi_backtest
@@ -11,11 +12,11 @@ from .config import INITIAL_CAPITAL, MAX_PCT_PER_TRADE
 
 def run_grid_backtest(
     symbol: str = "BTCUSDT",
-    ema_pairs: list = None,
-    timeframes: list = None,
+    ema_pairs: Optional[list] = None,
+    timeframes: Optional[list] = None,
     limit: int = 1000,
     rsi_period: int = 14,
-    output_file: str = None,
+    output_file: Optional[str] = None,
 ):
     """Run backtest for multiple EMA and timeframe combinations.
     
