@@ -13,6 +13,9 @@ from loguru import logger
 from trading_bot.execution import run_paper_trade
 
 
+logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
+
+
 def _interval_to_seconds(interval: str) -> int:
     unit = interval[-1].lower()
     value = int(interval[:-1])
