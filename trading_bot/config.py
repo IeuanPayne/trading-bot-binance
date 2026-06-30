@@ -9,6 +9,24 @@ def _as_bool(value: str, default: bool = False) -> bool:
         return default
     return value.lower() in ("1", "true", "yes")
 
+
+def _as_float(value: str | None, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _as_int(value: str | None, default: int = 0) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
 # Binance/testnet settings
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
@@ -19,6 +37,10 @@ ALLOW_LIVE_TRADING = _as_bool(os.getenv("ALLOW_LIVE_TRADING", "False"), default=
 INITIAL_CAPITAL = 10000.0
 MAX_PCT_PER_TRADE = 0.01  # 1% default
 MAX_CONCURRENT_TRADES = 3
+MAX_DAILY_LOSS_USDT = _as_float(os.getenv("MAX_DAILY_LOSS_USDT"), default=0.0)
+MAX_DRAWDOWN_PCT = _as_float(os.getenv("MAX_DRAWDOWN_PCT"), default=0.0)
+MAX_CONSECUTIVE_LOSSES = _as_int(os.getenv("MAX_CONSECUTIVE_LOSSES"), default=0)
+MAX_TRADES_PER_DAY = _as_int(os.getenv("MAX_TRADES_PER_DAY"), default=0)
 
 
 def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None:
@@ -31,6 +53,15 @@ def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None
             raise ValueError("order-pct must be in (0, 1], where 0.01 means 1%")
         if stop_pips <= 0:
             raise ValueError("stop-pips must be greater than zero (absolute price distance)")
+
+    if MAX_DAILY_LOSS_USDT < 0:
+        raise ValueError("MAX_DAILY_LOSS_USDT must be >= 0")
+    if MAX_DRAWDOWN_PCT < 0:
+        raise ValueError("MAX_DRAWDOWN_PCT must be >= 0")
+    if MAX_CONSECUTIVE_LOSSES < 0:
+        raise ValueError("MAX_CONSECUTIVE_LOSSES must be >= 0")
+    if MAX_TRADES_PER_DAY < 0:
+        raise ValueError("MAX_TRADES_PER_DAY must be >= 0")
 
     if mode == "paper" and not BINANCE_TESTNET and not ALLOW_LIVE_TRADING:
         raise ValueError(

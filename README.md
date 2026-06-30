@@ -41,6 +41,10 @@ BINANCE_TESTNET=True
 ALLOW_LIVE_TRADING=False
 INITIAL_CAPITAL=10000
 MAX_PCT_PER_TRADE=2
+MAX_DAILY_LOSS_USDT=0
+MAX_DRAWDOWN_PCT=0
+MAX_CONSECUTIVE_LOSSES=0
+MAX_TRADES_PER_DAY=0
 ```
 
 ### 3. Verify Keys (Optional)
@@ -120,6 +124,10 @@ trading-bot-binance/
 | `ALLOW_LIVE_TRADING` | `False` | Must be `True` to allow live orders when `BINANCE_TESTNET=False` |
 | `INITIAL_CAPITAL` | `10000` | Starting capital in USDT |
 | `MAX_PCT_PER_TRADE` | `2` | Max percentage of capital per trade (%) |
+| `MAX_DAILY_LOSS_USDT` | `0` | Max realized daily loss before blocking new entries (0 disables) |
+| `MAX_DRAWDOWN_PCT` | `0` | Max drawdown percentage before blocking new entries (0 disables) |
+| `MAX_CONSECUTIVE_LOSSES` | `0` | Max consecutive losing exits before blocking new entries (0 disables) |
+| `MAX_TRADES_PER_DAY` | `0` | Max entries per UTC day before blocking new entries (0 disables) |
 
 ### CLI Arguments
 

@@ -1,5 +1,6 @@
 import time
 import hashlib
+from datetime import datetime, timezone
 from loguru import logger
 
 from .binance_connector import BinanceConnector
@@ -17,6 +18,10 @@ from .config import (
     BINANCE_TESTNET,
     ALLOW_LIVE_TRADING,
     MAX_PCT_PER_TRADE,
+    MAX_DAILY_LOSS_USDT,
+    MAX_DRAWDOWN_PCT,
+    MAX_CONSECUTIVE_LOSSES,
+    MAX_TRADES_PER_DAY,
 )
 
 
@@ -102,11 +107,29 @@ def run_paper_trade(
     logger.info("Latest candle close={} long_signal={} short_signal={}", latest["close"], long_signal, short_signal)
     logger.info("Balances: {} free={}, {} free={}", quote_asset, quote_free, base_asset, base_free)
 
+    current_equity = _current_equity(quote_free, base_free, _safe_float(latest["close"]))
+    risk_state = _load_risk_state(state_store, current_equity)
+    tripped, reason = _risk_breaker_reason(risk_state, current_equity)
+    if tripped:
+        risk_state["breaker_tripped"] = True
+        risk_state["breaker_reason"] = reason
+        state_store.set_runtime_state("risk_state", risk_state)
+        logger.error("Risk breaker active: {}", reason)
+    else:
+        risk_state["breaker_tripped"] = False
+        risk_state["breaker_reason"] = ""
+        state_store.set_runtime_state("risk_state", risk_state)
+
     if state_store.is_signal_processed(symbol, signal_id):
         logger.info("Signal already processed for {} at {}. Skipping duplicate execution.", symbol, latest_close_time)
         return
 
     if long_signal:
+        if tripped:
+            logger.warning("Skipping long entry due to active risk breaker: {}", reason)
+            state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": reason})
+            return
+
         if base_free > 0:
             logger.info("Existing long position detected for {}: skipping new entry.", base_asset)
             return
@@ -196,6 +219,8 @@ def run_paper_trade(
                     position["protection_error"] = str(exc)
 
         state_store.set_position(symbol, position)
+        risk_state["trades_today"] = int(risk_state.get("trades_today", 0)) + 1
+        state_store.set_runtime_state("risk_state", risk_state)
         state_store.mark_signal_processed(symbol, signal_id, {"action": "buy", "qty": quantity})
 
         return
@@ -221,6 +246,7 @@ def run_paper_trade(
             action="market sell",
         )
         logger.info("Market sell response: {}", order)
+        _record_exit_risk_metrics(state_store, symbol, _safe_float(latest["close"]))
         state_store.clear_position(symbol)
         state_store.mark_signal_processed(symbol, signal_id, {"action": "sell", "qty": base_free})
         return
@@ -250,6 +276,75 @@ def _build_client_order_id(symbol: str, candle_id: str, action: str) -> str:
     payload = f"{symbol}|{candle_id}|{action}".encode("utf-8")
     digest = hashlib.sha1(payload).hexdigest()[:20]
     return f"tb_{action[:8]}_{digest}"
+
+
+def _today_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _current_equity(quote_free: float, base_free: float, mark_price: float) -> float:
+    return quote_free + (base_free * mark_price)
+
+
+def _load_risk_state(state_store: TradingStateStore, current_equity: float) -> dict:
+    state = state_store.get_runtime_state("risk_state", default={}) or {}
+    today = _today_key()
+    if state.get("day") != today:
+        state["day"] = today
+        state["realized_pnl_today"] = 0.0
+        state["trades_today"] = 0
+        state["consecutive_losses"] = 0
+        state["day_start_equity"] = current_equity
+    state["peak_equity"] = max(float(state.get("peak_equity", current_equity)), current_equity)
+    state.setdefault("breaker_tripped", False)
+    state.setdefault("breaker_reason", "")
+    return state
+
+
+def _risk_breaker_reason(risk_state: dict, current_equity: float) -> tuple[bool, str]:
+    daily_pnl = float(risk_state.get("realized_pnl_today", 0.0))
+    if MAX_DAILY_LOSS_USDT > 0 and daily_pnl <= -MAX_DAILY_LOSS_USDT:
+        return True, f"daily loss limit reached ({daily_pnl:.4f} <= -{MAX_DAILY_LOSS_USDT:.4f})"
+
+    peak_equity = float(risk_state.get("peak_equity", current_equity))
+    if MAX_DRAWDOWN_PCT > 0 and peak_equity > 0:
+        drawdown_pct = ((peak_equity - current_equity) / peak_equity) * 100.0
+        if drawdown_pct >= MAX_DRAWDOWN_PCT:
+            return True, f"max drawdown reached ({drawdown_pct:.2f}% >= {MAX_DRAWDOWN_PCT:.2f}%)"
+
+    consecutive_losses = int(risk_state.get("consecutive_losses", 0))
+    if MAX_CONSECUTIVE_LOSSES > 0 and consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+        return True, f"max consecutive losses reached ({consecutive_losses} >= {MAX_CONSECUTIVE_LOSSES})"
+
+    trades_today = int(risk_state.get("trades_today", 0))
+    if MAX_TRADES_PER_DAY > 0 and trades_today >= MAX_TRADES_PER_DAY:
+        return True, f"max trades per day reached ({trades_today} >= {MAX_TRADES_PER_DAY})"
+
+    return False, ""
+
+
+def _record_exit_risk_metrics(state_store: TradingStateStore, symbol: str, exit_price: float) -> None:
+    position = state_store.get_position(symbol)
+    if not position:
+        return
+
+    qty = _safe_float(position.get("qty", 0.0))
+    entry_price = _safe_float(position.get("entry_price", 0.0))
+    if qty <= 0 or entry_price <= 0 or exit_price <= 0:
+        return
+
+    pnl = (exit_price - entry_price) * qty
+    risk_state = state_store.get_runtime_state("risk_state", default={}) or {}
+    if risk_state.get("day") != _today_key():
+        # Keep daily boundaries consistent even if called after midnight rollover.
+        risk_state = _load_risk_state(state_store, current_equity=0.0)
+
+    risk_state["realized_pnl_today"] = float(risk_state.get("realized_pnl_today", 0.0)) + pnl
+    if pnl < 0:
+        risk_state["consecutive_losses"] = int(risk_state.get("consecutive_losses", 0)) + 1
+    else:
+        risk_state["consecutive_losses"] = 0
+    state_store.set_runtime_state("risk_state", risk_state)
 
 
 def run_paper_backtest(

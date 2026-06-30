@@ -6,9 +6,11 @@ from trading_bot.execution import (
     _safe_float,
     _symbol_assets,
     _submit_with_retry,
+    _today_key,
     calculate_order_quantity,
     run_paper_trade,
 )
+from trading_bot.state_store import TradingStateStore
 
 
 class DummyConnector:
@@ -276,3 +278,53 @@ def test_build_client_order_id_is_stable():
     second = _build_client_order_id("BTCUSDT", "2026-06-30T00:00:00", "buy")
     assert first == second
     assert first.startswith("tb_buy_")
+
+
+@pytest.mark.parametrize(
+    "state_update,limit_patch",
+    [
+        ({"realized_pnl_today": -25.0}, {"MAX_DAILY_LOSS_USDT": 10.0}),
+        ({"peak_equity": 2000.0}, {"MAX_DRAWDOWN_PCT": 10.0}),
+        ({"consecutive_losses": 2}, {"MAX_CONSECUTIVE_LOSSES": 2}),
+        ({"trades_today": 3}, {"MAX_TRADES_PER_DAY": 3}),
+    ],
+)
+def test_run_paper_trade_blocks_new_entry_when_risk_breaker_trips(monkeypatch, tmp_path, state_update, limit_patch):
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_KEY", "key")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_TESTNET", True)
+
+    # Disable all limits first, then enable only the one under test.
+    monkeypatch.setattr("trading_bot.execution.MAX_DAILY_LOSS_USDT", 0.0)
+    monkeypatch.setattr("trading_bot.execution.MAX_DRAWDOWN_PCT", 0.0)
+    monkeypatch.setattr("trading_bot.execution.MAX_CONSECUTIVE_LOSSES", 0)
+    monkeypatch.setattr("trading_bot.execution.MAX_TRADES_PER_DAY", 0)
+    for key, value in limit_patch.items():
+        monkeypatch.setattr(f"trading_bot.execution.{key}", value)
+
+    fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
+    monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
+
+    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+        signals = df.copy()
+        signals["long_signal"] = [False] * (len(df) - 1) + [True]
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+
+    state_file = str(tmp_path / "state.db")
+    store = TradingStateStore(state_file)
+    risk_state = {
+        "day": _today_key(),
+        "day_start_equity": 1000.0,
+        "realized_pnl_today": 0.0,
+        "trades_today": 0,
+        "consecutive_losses": 0,
+        "peak_equity": 1000.0,
+    }
+    risk_state.update(state_update)
+    store.set_runtime_state("risk_state", risk_state)
+
+    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
+    assert len(fake.market_orders) == 0

@@ -35,6 +35,14 @@ class TradingStateStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runtime_state (
+                    state_key TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
             conn.commit()
 
     def load(self) -> Dict[str, Any]:
@@ -101,5 +109,24 @@ class TradingStateStore:
             conn.execute(
                 "INSERT INTO signals(symbol, signal_id, payload) VALUES(?, ?, ?) ON CONFLICT(symbol, signal_id) DO UPDATE SET payload=excluded.payload",
                 (symbol, signal_id, payload),
+            )
+            conn.commit()
+
+    def get_runtime_state(self, key: str, default: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload FROM runtime_state WHERE state_key = ?",
+                (key,),
+            ).fetchone()
+        if row is None:
+            return default
+        return json.loads(row[0])
+
+    def set_runtime_state(self, key: str, value: Dict[str, Any]) -> None:
+        payload = json.dumps(value, sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO runtime_state(state_key, payload) VALUES(?, ?) ON CONFLICT(state_key) DO UPDATE SET payload=excluded.payload",
+                (key, payload),
             )
             conn.commit()
