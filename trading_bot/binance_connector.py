@@ -105,7 +105,13 @@ class BinanceConnector:
         balance: Optional[Dict[str, Any]] = self.client.get_asset_balance(asset=asset)
         return balance or {"free": 0.0, "locked": 0.0}
 
-    def create_market_order(self, symbol: str, side: str, quantity: float) -> Dict[str, Any]:
+    def create_market_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        client_order_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Create a market order.
         
         Args:
@@ -121,7 +127,15 @@ class BinanceConnector:
         """
         if self.client is None:
             raise RuntimeError("Binance client is not initialized for trading")
-        return self.client.create_order(symbol=symbol, side=side.upper(), type="MARKET", quantity=quantity)
+        payload: Dict[str, Any] = {
+            "symbol": symbol,
+            "side": side.upper(),
+            "type": "MARKET",
+            "quantity": quantity,
+        }
+        if client_order_id:
+            payload["newClientOrderId"] = client_order_id
+        return self.client.create_order(**payload)
 
     def create_oco_order(
         self,
@@ -131,6 +145,9 @@ class BinanceConnector:
         price: float,
         stop_price: float,
         stop_limit_price: float,
+        list_client_order_id: Optional[str] = None,
+        limit_client_order_id: Optional[str] = None,
+        stop_client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create One-Cancels-Other order (take profit + stop loss).
         
@@ -150,14 +167,23 @@ class BinanceConnector:
         """
         if self.client is None:
             raise RuntimeError("Binance client is not initialized for trading")
+        payload: Dict[str, Any] = {
+            "symbol": symbol,
+            "side": side.upper(),
+            "quantity": quantity,
+            "price": str(price),
+            "stopPrice": str(stop_price),
+            "stopLimitPrice": str(stop_limit_price),
+            "stopLimitTimeInForce": "GTC",
+        }
+        if list_client_order_id:
+            payload["listClientOrderId"] = list_client_order_id
+        if limit_client_order_id:
+            payload["limitClientOrderId"] = limit_client_order_id
+        if stop_client_order_id:
+            payload["stopClientOrderId"] = stop_client_order_id
         return self.client.create_oco_order(
-            symbol=symbol,
-            side=side.upper(),
-            quantity=quantity,
-            price=str(price),
-            stopPrice=str(stop_price),
-            stopLimitPrice=str(stop_limit_price),
-            stopLimitTimeInForce="GTC",
+            **payload,
         )
 
     def get_symbol_info(self, symbol: str) -> Optional[Dict[str, Any]]:

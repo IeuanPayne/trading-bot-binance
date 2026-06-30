@@ -1,50 +1,105 @@
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 
 class TradingStateStore:
-    """Simple JSON-backed store for order/position state across restarts."""
+    """SQLite-backed store for order/position state across restarts."""
 
-    def __init__(self, filepath: str = "trading_state.json") -> None:
+    def __init__(self, filepath: str = "trading_state.db") -> None:
         self.path = Path(filepath)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_db()
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.path)
+
+    def _init_db(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS positions (
+                    symbol TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS signals (
+                    symbol TEXT NOT NULL,
+                    signal_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY (symbol, signal_id)
+                )
+                """
+            )
+            conn.commit()
 
     def load(self) -> Dict[str, Any]:
-        if not self.path.exists():
-            return {"positions": {}, "signals": {}}
-        with open(self.path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        data.setdefault("positions", {})
-        data.setdefault("signals", {})
+        data: Dict[str, Any] = {"positions": {}, "signals": {}}
+        with self._connect() as conn:
+            for symbol, payload in conn.execute("SELECT symbol, payload FROM positions"):
+                data["positions"][symbol] = json.loads(payload)
+            for symbol, signal_id, payload in conn.execute("SELECT symbol, signal_id, payload FROM signals"):
+                symbol_signals = data["signals"].setdefault(symbol, {})
+                symbol_signals[signal_id] = json.loads(payload)
         return data
 
     def save(self, data: Dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
-        tmp_path.replace(self.path)
+        positions = data.get("positions", {})
+        signals = data.get("signals", {})
+        with self._connect() as conn:
+            conn.execute("DELETE FROM positions")
+            conn.execute("DELETE FROM signals")
+            for symbol, payload in positions.items():
+                conn.execute(
+                    "INSERT INTO positions(symbol, payload) VALUES(?, ?)",
+                    (symbol, json.dumps(payload, sort_keys=True)),
+                )
+            for symbol, signal_map in signals.items():
+                for signal_id, payload in signal_map.items():
+                    conn.execute(
+                        "INSERT INTO signals(symbol, signal_id, payload) VALUES(?, ?, ?)",
+                        (symbol, signal_id, json.dumps(payload, sort_keys=True)),
+                    )
+            conn.commit()
 
     def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
-        data = self.load()
-        return data["positions"].get(symbol)
+        with self._connect() as conn:
+            row = conn.execute("SELECT payload FROM positions WHERE symbol = ?", (symbol,)).fetchone()
+        if row is None:
+            return None
+        return json.loads(row[0])
 
     def set_position(self, symbol: str, position: Dict[str, Any]) -> None:
-        data = self.load()
-        data["positions"][symbol] = position
-        self.save(data)
+        payload = json.dumps(position, sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO positions(symbol, payload) VALUES(?, ?) ON CONFLICT(symbol) DO UPDATE SET payload=excluded.payload",
+                (symbol, payload),
+            )
+            conn.commit()
 
     def clear_position(self, symbol: str) -> None:
-        data = self.load()
-        data["positions"].pop(symbol, None)
-        self.save(data)
+        with self._connect() as conn:
+            conn.execute("DELETE FROM positions WHERE symbol = ?", (symbol,))
+            conn.commit()
 
     def is_signal_processed(self, symbol: str, signal_id: str) -> bool:
-        data = self.load()
-        return signal_id in data["signals"].get(symbol, {})
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM signals WHERE symbol = ? AND signal_id = ?",
+                (symbol, signal_id),
+            ).fetchone()
+        return row is not None
 
     def mark_signal_processed(self, symbol: str, signal_id: str, metadata: Dict[str, Any]) -> None:
-        data = self.load()
-        symbol_signals = data["signals"].setdefault(symbol, {})
-        symbol_signals[signal_id] = metadata
-        self.save(data)
+        payload = json.dumps(metadata, sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO signals(symbol, signal_id, payload) VALUES(?, ?, ?) ON CONFLICT(symbol, signal_id) DO UPDATE SET payload=excluded.payload",
+                (symbol, signal_id, payload),
+            )
+            conn.commit()

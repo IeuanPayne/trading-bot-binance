@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from trading_bot.execution import (
+    _build_client_order_id,
     _safe_float,
     _symbol_assets,
     _submit_with_retry,
@@ -51,12 +52,34 @@ class FakeTrader:
     def get_symbol_price(self, symbol: str) -> dict:
         return {"price": str(self.symbol_price)}
 
-    def create_market_order(self, symbol: str, side: str, quantity: float) -> dict:
-        self.market_orders.append({"symbol": symbol, "side": side, "quantity": quantity})
+    def create_market_order(self, symbol: str, side: str, quantity: float, client_order_id: str = None) -> dict:
+        self.market_orders.append({"symbol": symbol, "side": side, "quantity": quantity, "client_order_id": client_order_id})
         return {"status": "created", "side": side, "qty": quantity}
 
-    def create_oco_order(self, symbol: str, side: str, quantity: float, price: float, stop_price: float, stop_limit_price: float) -> dict:
-        self.oco_orders.append({"symbol": symbol, "side": side, "quantity": quantity, "price": price, "stop_price": stop_price})
+    def create_oco_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        price: float,
+        stop_price: float,
+        stop_limit_price: float,
+        list_client_order_id: str = None,
+        limit_client_order_id: str = None,
+        stop_client_order_id: str = None,
+    ) -> dict:
+        self.oco_orders.append(
+            {
+                "symbol": symbol,
+                "side": side,
+                "quantity": quantity,
+                "price": price,
+                "stop_price": stop_price,
+                "list_client_order_id": list_client_order_id,
+                "limit_client_order_id": limit_client_order_id,
+                "stop_client_order_id": stop_client_order_id,
+            }
+        )
         return {"status": "oco_created"}
 
     def round_quantity(self, symbol: str, quantity: float) -> float:
@@ -151,9 +174,11 @@ def test_run_paper_trade_long_signal_places_market_buy(monkeypatch, tmp_path):
 
     assert len(fake.market_orders) == 1
     assert fake.market_orders[0]["side"] == "BUY"
+    assert fake.market_orders[0]["client_order_id"].startswith("tb_buy_")
     assert len(fake.oco_orders) == 1
     assert fake.oco_orders[0]["stop_price"] == pytest.approx(49.3)
     assert fake.oco_orders[0]["price"] == pytest.approx(50.7)
+    assert fake.oco_orders[0]["list_client_order_id"].startswith("tb_oco_list")
 
 
 def test_run_paper_trade_short_signal_closes_position(monkeypatch, tmp_path):
@@ -175,6 +200,7 @@ def test_run_paper_trade_short_signal_closes_position(monkeypatch, tmp_path):
 
     assert len(fake.market_orders) == 1
     assert fake.market_orders[0]["side"] == "SELL"
+    assert fake.market_orders[0]["client_order_id"].startswith("tb_sell_")
 
 
 def test_submit_with_retry_succeeds_after_transient_error(monkeypatch):
@@ -213,3 +239,40 @@ def test_run_paper_trade_skips_duplicate_signal(monkeypatch, tmp_path):
     run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
 
     assert len(fake.market_orders) == 1
+
+
+def test_run_paper_trade_oco_failure_triggers_emergency_flatten(monkeypatch, tmp_path):
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_KEY", "key")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_TESTNET", True)
+
+    fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
+    monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
+
+    def failing_oco(*args, **kwargs):
+        raise RuntimeError("oco rejected")
+
+    fake.create_oco_order = failing_oco
+
+    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+        signals = df.copy()
+        signals["long_signal"] = [False] * (len(df) - 1) + [True]
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+    state_file = str(tmp_path / "state.db")
+    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
+
+    # First market order is BUY entry, second is emergency SELL flatten.
+    assert len(fake.market_orders) == 2
+    assert fake.market_orders[0]["side"] == "BUY"
+    assert fake.market_orders[1]["side"] == "SELL"
+    assert fake.market_orders[1]["client_order_id"].startswith("tb_emergenc")
+
+
+def test_build_client_order_id_is_stable():
+    first = _build_client_order_id("BTCUSDT", "2026-06-30T00:00:00", "buy")
+    second = _build_client_order_id("BTCUSDT", "2026-06-30T00:00:00", "buy")
+    assert first == second
+    assert first.startswith("tb_buy_")

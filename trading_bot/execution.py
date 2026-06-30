@@ -1,5 +1,6 @@
 import math
 import time
+import hashlib
 from loguru import logger
 
 from .binance_connector import BinanceConnector
@@ -51,7 +52,7 @@ def run_paper_trade(
     order_pct: float = MAX_PCT_PER_TRADE,
     stop_pips: float = 0.7,
     disable_oco: bool = False,
-    state_file: str = "trading_state.json",
+    state_file: str = "trading_state.db",
 ):
     if not BINANCE_API_KEY or not BINANCE_API_SECRET:
         logger.error("Paper trading requires BINANCE_API_KEY and BINANCE_API_SECRET in .env")
@@ -127,11 +128,13 @@ def run_paper_trade(
             logger.error("Pre-trade validation failed for {} BUY qty={}: {}", symbol, quantity, reason)
             return
         logger.info("Placing market buy for {} qty={} at price={} (allocation={} {} )", symbol, quantity, entry_price, allocation, quote_asset)
+        market_buy_id = _build_client_order_id(symbol, latest_close_time, "buy")
         order = _submit_with_retry(
             connector.create_market_order,
             symbol=symbol,
             side="BUY",
             quantity=quantity,
+            client_order_id=market_buy_id,
             action="market buy",
         )
         logger.info("Market order response: {}", order)
@@ -150,6 +153,9 @@ def run_paper_trade(
             take_profit = connector.round_price(symbol, entry_price + stop_distance)
             stop_limit_price = connector.round_price(symbol, stop_price * 0.999)
             try:
+                list_id = _build_client_order_id(symbol, latest_close_time, "oco_list")
+                tp_id = _build_client_order_id(symbol, latest_close_time, "oco_tp")
+                sl_id = _build_client_order_id(symbol, latest_close_time, "oco_sl")
                 oco = _submit_with_retry(
                     connector.create_oco_order,
                     symbol=symbol,
@@ -158,12 +164,37 @@ def run_paper_trade(
                     price=take_profit,
                     stop_price=stop_price,
                     stop_limit_price=stop_limit_price,
+                    list_client_order_id=list_id,
+                    limit_client_order_id=tp_id,
+                    stop_client_order_id=sl_id,
                     action="oco create",
                 )
                 position["oco"] = oco
                 logger.info("OCO stop-loss/take-profit order created: {}", oco)
             except Exception as exc:
-                logger.warning("Failed to create OCO order: {}", exc)
+                logger.error("Failed to create OCO order: {}", exc)
+                flatten_id = _build_client_order_id(symbol, latest_close_time, "emergency_sell")
+                try:
+                    flatten_order = _submit_with_retry(
+                        connector.create_market_order,
+                        symbol=symbol,
+                        side="SELL",
+                        quantity=quantity,
+                        client_order_id=flatten_id,
+                        action="emergency market sell",
+                    )
+                    logger.warning("Emergency flatten order placed after OCO failure: {}", flatten_order)
+                    state_store.clear_position(symbol)
+                    state_store.mark_signal_processed(
+                        symbol,
+                        signal_id,
+                        {"action": "emergency_flatten", "qty": quantity, "reason": "oco_failed"},
+                    )
+                    return
+                except Exception as flatten_exc:
+                    logger.error("Emergency flatten failed after OCO failure: {}", flatten_exc)
+                    position["protection_status"] = "unprotected"
+                    position["protection_error"] = str(exc)
 
         state_store.set_position(symbol, position)
         state_store.mark_signal_processed(symbol, signal_id, {"action": "buy", "qty": quantity})
@@ -181,11 +212,13 @@ def run_paper_trade(
             return
 
         logger.info("Short signal detected, closing existing long position for {}", base_asset)
+        market_sell_id = _build_client_order_id(symbol, latest_close_time, "sell")
         order = _submit_with_retry(
             connector.create_market_order,
             symbol=symbol,
             side="SELL",
             quantity=base_free,
+            client_order_id=market_sell_id,
             action="market sell",
         )
         logger.info("Market sell response: {}", order)
@@ -211,6 +244,13 @@ def _submit_with_retry(fn, retries: int = 3, initial_delay: float = 0.5, action:
             time.sleep(delay)
             delay *= 2
     raise RuntimeError(f"{action} failed after {retries} attempts: {last_exc}")
+
+
+def _build_client_order_id(symbol: str, candle_id: str, action: str) -> str:
+    """Build deterministic Binance client order IDs for idempotent retries."""
+    payload = f"{symbol}|{candle_id}|{action}".encode("utf-8")
+    digest = hashlib.sha1(payload).hexdigest()[:20]
+    return f"tb_{action[:8]}_{digest}"
 
 
 def run_paper_backtest(
