@@ -280,6 +280,75 @@ def test_build_client_order_id_is_stable():
     assert first.startswith("tb_buy_")
 
 
+def test_run_paper_trade_sends_alert_when_breaker_activates(monkeypatch, tmp_path):
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_KEY", "key")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_TESTNET", True)
+    monkeypatch.setattr("trading_bot.execution.MAX_DAILY_LOSS_USDT", 10.0)
+    monkeypatch.setattr("trading_bot.execution.MAX_DRAWDOWN_PCT", 0.0)
+    monkeypatch.setattr("trading_bot.execution.MAX_CONSECUTIVE_LOSSES", 0)
+    monkeypatch.setattr("trading_bot.execution.MAX_TRADES_PER_DAY", 0)
+
+    fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
+    monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
+
+    sent_alerts = []
+
+    def fake_alert(msg, level="ERROR"):
+        sent_alerts.append((level, msg))
+        return True
+
+    monkeypatch.setattr("trading_bot.execution.send_alert", fake_alert)
+
+    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+        signals = df.copy()
+        signals["long_signal"] = [False] * (len(df) - 1) + [True]
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+
+    state_file = str(tmp_path / "state.db")
+    store = TradingStateStore(state_file)
+    store.set_runtime_state(
+        "risk_state",
+        {
+            "day": _today_key(),
+            "day_start_equity": 1000.0,
+            "realized_pnl_today": -20.0,
+            "trades_today": 0,
+            "consecutive_losses": 0,
+            "peak_equity": 1000.0,
+            "breaker_tripped": False,
+            "breaker_reason": "",
+        },
+    )
+
+    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
+    assert any("Risk breaker activated" in msg for _level, msg in sent_alerts)
+
+
+def test_run_paper_trade_sends_alert_on_emergency_flatten(monkeypatch, tmp_path):
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_KEY", "key")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_TESTNET", True)
+
+    fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
+    monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
+
+    def failing_oco(*args, **kwargs):
+        raise RuntimeError("oco rejected")
+
+    fake.create_oco_order = failing_oco
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", lambda df, ema_fast, ema_slow, rsi_period: df.assign(long_signal=[False] * (len(df) - 1) + [True], short_signal=[False] * len(df)))
+
+    sent_alerts = []
+    monkeypatch.setattr("trading_bot.execution.send_alert", lambda msg, level="ERROR": sent_alerts.append((level, msg)) or True)
+
+    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=str(tmp_path / "state.db"))
+    assert any("Emergency flatten executed" in msg for _level, msg in sent_alerts)
+
+
 @pytest.mark.parametrize(
     "state_update,limit_patch",
     [

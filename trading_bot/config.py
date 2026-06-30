@@ -42,6 +42,14 @@ MAX_DRAWDOWN_PCT = _as_float(os.getenv("MAX_DRAWDOWN_PCT"), default=0.0)
 MAX_CONSECUTIVE_LOSSES = _as_int(os.getenv("MAX_CONSECUTIVE_LOSSES"), default=0)
 MAX_TRADES_PER_DAY = _as_int(os.getenv("MAX_TRADES_PER_DAY"), default=0)
 
+# Alerting settings
+ALERTS_ENABLED = _as_bool(os.getenv("ALERTS_ENABLED", "False"), default=False)
+ALERT_SMS_PROVIDER = os.getenv("ALERT_SMS_PROVIDER", "twilio")
+ALERT_PHONE_TO = os.getenv("ALERT_PHONE_TO")
+ALERT_PHONE_FROM = os.getenv("ALERT_PHONE_FROM")
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+
 
 def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None:
     """Validate runtime args and fail fast for unsafe/invalid settings."""

@@ -5,6 +5,7 @@ from loguru import logger
 
 from .binance_connector import BinanceConnector
 from .backtest import emarsi_backtest, prepare_ema_rsi_signals
+from .alerts import send_alert
 from .state_store import TradingStateStore
 
 # Strategy contract: Gold EMA Trend + RSI Filter (single-layer logic)
@@ -109,16 +110,21 @@ def run_paper_trade(
 
     current_equity = _current_equity(quote_free, base_free, _safe_float(latest["close"]))
     risk_state = _load_risk_state(state_store, current_equity)
+    was_tripped = bool(risk_state.get("breaker_tripped", False))
     tripped, reason = _risk_breaker_reason(risk_state, current_equity)
     if tripped:
         risk_state["breaker_tripped"] = True
         risk_state["breaker_reason"] = reason
         state_store.set_runtime_state("risk_state", risk_state)
         logger.error("Risk breaker active: {}", reason)
+        if not was_tripped:
+            send_alert(f"Risk breaker activated for {symbol}: {reason}", level="CRITICAL")
     else:
         risk_state["breaker_tripped"] = False
         risk_state["breaker_reason"] = ""
         state_store.set_runtime_state("risk_state", risk_state)
+        if was_tripped:
+            send_alert(f"Risk breaker cleared for {symbol}. Trading can resume.", level="INFO")
 
     if state_store.is_signal_processed(symbol, signal_id):
         logger.info("Signal already processed for {} at {}. Skipping duplicate execution.", symbol, latest_close_time)
@@ -195,6 +201,7 @@ def run_paper_trade(
                 logger.info("OCO stop-loss/take-profit order created: {}", oco)
             except Exception as exc:
                 logger.error("Failed to create OCO order: {}", exc)
+                send_alert(f"OCO placement failed for {symbol}. Attempting emergency flatten.", level="ERROR")
                 flatten_id = _build_client_order_id(symbol, latest_close_time, "emergency_sell")
                 try:
                     flatten_order = _submit_with_retry(
@@ -206,6 +213,7 @@ def run_paper_trade(
                         action="emergency market sell",
                     )
                     logger.warning("Emergency flatten order placed after OCO failure: {}", flatten_order)
+                    send_alert(f"Emergency flatten executed for {symbol} after OCO failure.", level="CRITICAL")
                     state_store.clear_position(symbol)
                     state_store.mark_signal_processed(
                         symbol,
@@ -215,6 +223,10 @@ def run_paper_trade(
                     return
                 except Exception as flatten_exc:
                     logger.error("Emergency flatten failed after OCO failure: {}", flatten_exc)
+                    send_alert(
+                        f"Emergency flatten FAILED for {symbol}. Position may be unprotected. Immediate action required.",
+                        level="CRITICAL",
+                    )
                     position["protection_status"] = "unprotected"
                     position["protection_error"] = str(exc)
 

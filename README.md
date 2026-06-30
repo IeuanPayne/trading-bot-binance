@@ -45,6 +45,12 @@ MAX_DAILY_LOSS_USDT=0
 MAX_DRAWDOWN_PCT=0
 MAX_CONSECUTIVE_LOSSES=0
 MAX_TRADES_PER_DAY=0
+ALERTS_ENABLED=False
+ALERT_SMS_PROVIDER=twilio
+ALERT_PHONE_TO=
+ALERT_PHONE_FROM=
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
 ```
 
 ### 3. Verify Keys (Optional)
@@ -128,6 +134,12 @@ trading-bot-binance/
 | `MAX_DRAWDOWN_PCT` | `0` | Max drawdown percentage before blocking new entries (0 disables) |
 | `MAX_CONSECUTIVE_LOSSES` | `0` | Max consecutive losing exits before blocking new entries (0 disables) |
 | `MAX_TRADES_PER_DAY` | `0` | Max entries per UTC day before blocking new entries (0 disables) |
+| `ALERTS_ENABLED` | `False` | Enable outbound alerts |
+| `ALERT_SMS_PROVIDER` | `twilio` | Alert provider (currently `twilio`) |
+| `ALERT_PHONE_TO` | `+15551234567` | Destination phone number for SMS alerts |
+| `ALERT_PHONE_FROM` | `+15557654321` | Twilio sender phone number |
+| `TWILIO_ACCOUNT_SID` | `AC...` | Twilio account SID |
+| `TWILIO_AUTH_TOKEN` | `...` | Twilio auth token |
 
 ### CLI Arguments
 
