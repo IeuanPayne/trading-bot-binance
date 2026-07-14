@@ -112,6 +112,12 @@ class MT5Connector:
             return 0.0
         return float(info.balance)
 
+    def get_account_equity(self) -> float:
+        info = mt5.account_info()
+        if info is None:
+            return 0.0
+        return float(info.equity)
+
     def get_symbol_price(self, symbol: str, side: str = "BUY") -> float:
         tick = mt5.symbol_info_tick(symbol)
         if tick is None:

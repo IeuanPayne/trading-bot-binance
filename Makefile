@@ -2,7 +2,7 @@ VENV=.venv
 PYTHON=$(VENV)/bin/python3
 PIP=$(VENV)/bin/pip
 
-.PHONY: help setup install test backtest paper check-keys grid-backtest soak-test
+.PHONY: help setup install test backtest paper check-keys grid-backtest soak-test soak-mt5
 
 help:
 	@echo "Usage: make <target>"
@@ -15,6 +15,7 @@ help:
 	@echo "  check-keys     Validate Binance API keys and fetch balances."
 	@echo "  grid-backtest  Run grid backtest (test EMA/timeframe combos)."
 	@echo "  soak-test      Run controlled 24h paper-trading soak test loop."
+	@echo "  soak-mt5       Run controlled 24h MT5 trading soak loop."
 
 setup:
 	python3 -m venv $(VENV)
@@ -41,3 +42,6 @@ grid-backtest:
 
 soak-test:
 	PYTHONPATH=$(PWD) $(PYTHON) scripts/soak_test.py --symbol BTCUSDT --interval 15m --duration-hours 24 --run-now
+
+soak-mt5:
+	PYTHONPATH=$(PWD) $(PYTHON) scripts/soak_mt5.py --interval 15m --duration-hours 24 --run-now

@@ -99,6 +99,15 @@ PYTHONPATH=$(pwd) .venv/bin/python3 -m trading_bot.bot --mode mt5 \
   --order-pct 0.01 --stop-pips 0.7
 ```
 
+For unattended VPS operation (candle-aligned loop with reconnect attempts):
+
+```bash
+PYTHONPATH=$(pwd) .venv/bin/python3 scripts/soak_mt5.py \
+  --interval 15m --duration-hours 24 --run-now
+```
+
+The MT5 flow persists signal de-duplication and breaker state in `MT5_STATE_FILE`.
+
 ## Project Structure
 
 ```
@@ -156,6 +165,7 @@ trading-bot-binance/
 | `MT5_SERVER` | `Broker-Server` | MT5 broker server name |
 | `MT5_TERMINAL_PATH` | `C:\\Program Files\\MetaTrader 5\\terminal64.exe` | Optional MT5 terminal path |
 | `MT5_SYMBOL` | `BTCUSD` | MT5 trading symbol |
+| `MT5_STATE_FILE` | `mt5_trading_state.db` | Persistent state for MT5 de-dup and breakers |
 
 ### CLI Arguments
 

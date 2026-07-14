@@ -57,6 +57,7 @@ MT5_PASSWORD = os.getenv("MT5_PASSWORD")
 MT5_SERVER = os.getenv("MT5_SERVER")
 MT5_TERMINAL_PATH = os.getenv("MT5_TERMINAL_PATH")
 MT5_SYMBOL = os.getenv("MT5_SYMBOL", "BTCUSD")
+MT5_STATE_FILE = os.getenv("MT5_STATE_FILE", "mt5_trading_state.db")
 
 
 def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None:

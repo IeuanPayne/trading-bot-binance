@@ -15,6 +15,7 @@ from .config import (
     MT5_PASSWORD,
     MT5_SERVER,
     MT5_SYMBOL,
+    MT5_STATE_FILE,
     MT5_TERMINAL_PATH,
     validate_runtime_args,
 )
@@ -74,6 +75,7 @@ def main():
     parser.add_argument("--order-pct", type=float, default=MAX_PCT_PER_TRADE)
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--disable-oco", action="store_true")
+    parser.add_argument("--state-file", default=MT5_STATE_FILE)
     parser.add_argument("--output", type=str, help="CSV output file for grid backtest results")
     parser.add_argument("--export-report", action="store_true", help="Generate HTML report for backtest")
     args = parser.parse_args()
@@ -94,6 +96,7 @@ def main():
             order_pct=args.order_pct,
             stop_pips=args.stop_pips,
             disable_oco=args.disable_oco,
+            state_file=args.state_file,
         )
     elif args.mode == "mt5":
         connector = MT5Connector(
@@ -114,6 +117,7 @@ def main():
                 rsi_period=args.rsi_period,
                 order_pct=args.order_pct,
                 stop_pips=args.stop_pips,
+                state_file=args.state_file,
             )
         finally:
             connector.shutdown()
