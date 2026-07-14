@@ -91,7 +91,7 @@ def main() -> None:
 
     interval_seconds = _interval_to_seconds(args.interval)
     start_ts = time.time()
-    deadline = start_ts + (args.duration_hours * 3600)
+    deadline = float("inf") if args.duration_hours <= 0 else start_ts + (args.duration_hours * 3600)
     run_count = 0
 
     logger.info(

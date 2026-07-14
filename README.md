@@ -106,6 +106,42 @@ PYTHONPATH=$(pwd) .venv/bin/python3 scripts/soak_mt5.py \
   --interval 15m --duration-hours 24 --run-now
 ```
 
+On Windows VPS (auto-start on reboot), use:
+
+```powershell
+python scripts/soak_mt5.py --interval 15m --duration-hours 0 --run-now
+```
+
+`--duration-hours 0` means run indefinitely.
+
+### 7. Windows VPS Auto-Start (Task Scheduler)
+
+This repo includes a wrapper and task template:
+
+- `scripts/windows/run_mt5_soak.ps1`
+- `scripts/windows/mt5_soak_task.xml`
+
+Setup steps on your Windows VPS:
+
+1. Clone repo to a fixed path, for example `C:\trading-bot-binance`.
+2. Edit `scripts/windows/mt5_soak_task.xml`:
+   - Replace `YOUR_WINDOWS_USERNAME`.
+   - If needed, update `-RepoPath` and script path arguments.
+3. Import/register task (PowerShell as Administrator):
+
+```powershell
+$xml = Get-Content .\scripts\windows\mt5_soak_task.xml | Out-String
+Register-ScheduledTask -TaskName "TradingBot-MT5-Soak" -Xml $xml -User "YOUR_WINDOWS_USERNAME" -Password "YOUR_WINDOWS_PASSWORD"
+```
+
+4. Start immediately (optional):
+
+```powershell
+Start-ScheduledTask -TaskName "TradingBot-MT5-Soak"
+```
+
+5. Check wrapper log output in `logs\mt5_wrapper.log` and strategy logs in `trading_bot.log`.
+
 The MT5 flow persists signal de-duplication and breaker state in `MT5_STATE_FILE`.
 
 ## Project Structure
