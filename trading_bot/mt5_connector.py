@@ -54,7 +54,7 @@ class MT5Connector:
     def connect(self) -> None:
         if mt5 is None:
             raise RuntimeError(
-                "MetaTrader5 package is not available. Install it on a machine with MT5 terminal."
+                "MetaTrader5 package is not available on this host. MT5 Python integration requires Windows + installed MT5 terminal."
             )
 
         init_ok = mt5.initialize(path=self.terminal_path) if self.terminal_path else mt5.initialize()
