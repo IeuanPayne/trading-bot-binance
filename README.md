@@ -89,6 +89,16 @@ PYTHONPATH=$(pwd) .venv/bin/python3 -m trading_bot.bot --mode paper \
   --order-pct 2 --stop-pips 0.7
 ```
 
+### 6. Run MT5 Trading Mode
+
+Configure MT5 credentials in `.env` (see table below), then run:
+
+```bash
+PYTHONPATH=$(pwd) .venv/bin/python3 -m trading_bot.bot --mode mt5 \
+  --interval 15m --limit 500 --fast 9 --slow 21 --rsi-period 14 \
+  --order-pct 0.01 --stop-pips 0.7
+```
+
 ## Project Structure
 
 ```
@@ -140,6 +150,12 @@ trading-bot-binance/
 | `ALERT_PHONE_FROM` | `+15557654321` | Twilio sender phone number |
 | `TWILIO_ACCOUNT_SID` | `AC...` | Twilio account SID |
 | `TWILIO_AUTH_TOKEN` | `...` | Twilio auth token |
+| `MT5_ENABLED` | `False` | Set `True` to enable MT5 mode |
+| `MT5_LOGIN` | `12345678` | MT5 account login |
+| `MT5_PASSWORD` | `...` | MT5 account password |
+| `MT5_SERVER` | `Broker-Server` | MT5 broker server name |
+| `MT5_TERMINAL_PATH` | `C:\\Program Files\\MetaTrader 5\\terminal64.exe` | Optional MT5 terminal path |
+| `MT5_SYMBOL` | `BTCUSD` | MT5 trading symbol |
 
 ### CLI Arguments
 

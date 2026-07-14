@@ -50,6 +50,14 @@ ALERT_PHONE_FROM = os.getenv("ALERT_PHONE_FROM")
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 
+# MT5 settings
+MT5_ENABLED = _as_bool(os.getenv("MT5_ENABLED", "False"), default=False)
+MT5_LOGIN = os.getenv("MT5_LOGIN")
+MT5_PASSWORD = os.getenv("MT5_PASSWORD")
+MT5_SERVER = os.getenv("MT5_SERVER")
+MT5_TERMINAL_PATH = os.getenv("MT5_TERMINAL_PATH")
+MT5_SYMBOL = os.getenv("MT5_SYMBOL", "BTCUSD")
+
 
 def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None:
     """Validate runtime args and fail fast for unsafe/invalid settings."""
@@ -57,6 +65,16 @@ def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None
         raise ValueError("INITIAL_CAPITAL must be greater than zero")
 
     if mode in ("paper", "backtest"):
+        if order_pct <= 0 or order_pct > 1:
+            raise ValueError("order-pct must be in (0, 1], where 0.01 means 1%")
+        if stop_pips <= 0:
+            raise ValueError("stop-pips must be greater than zero (absolute price distance)")
+
+    if mode == "mt5":
+        if not MT5_ENABLED:
+            raise ValueError("MT5 mode requires MT5_ENABLED=True")
+        if not MT5_LOGIN or not MT5_PASSWORD or not MT5_SERVER:
+            raise ValueError("MT5 mode requires MT5_LOGIN, MT5_PASSWORD and MT5_SERVER")
         if order_pct <= 0 or order_pct > 1:
             raise ValueError("order-pct must be in (0, 1], where 0.01 means 1%")
         if stop_pips <= 0:

@@ -4,9 +4,20 @@ from loguru import logger
 from .binance_connector import BinanceConnector
 from .backtest import emarsi_backtest
 from .execution import run_paper_trade
+from .mt5_execution import run_mt5_trade
+from .mt5_connector import MT5Connector
 from .grid_backtest import run_grid_backtest, print_grid_summary
 from .metrics_persistence import HTMLReportGenerator
-from .config import INITIAL_CAPITAL, MAX_PCT_PER_TRADE, validate_runtime_args
+from .config import (
+    INITIAL_CAPITAL,
+    MAX_PCT_PER_TRADE,
+    MT5_LOGIN,
+    MT5_PASSWORD,
+    MT5_SERVER,
+    MT5_SYMBOL,
+    MT5_TERMINAL_PATH,
+    validate_runtime_args,
+)
 
 logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
 
@@ -59,7 +70,7 @@ def main():
     parser.add_argument("--fast", type=int, default=9)
     parser.add_argument("--slow", type=int, default=21)
     parser.add_argument("--rsi-period", type=int, default=14)
-    parser.add_argument("--mode", choices=["backtest", "paper", "grid-backtest"], default="backtest")
+    parser.add_argument("--mode", choices=["backtest", "paper", "grid-backtest", "mt5"], default="backtest")
     parser.add_argument("--order-pct", type=float, default=MAX_PCT_PER_TRADE)
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--disable-oco", action="store_true")
@@ -84,6 +95,28 @@ def main():
             stop_pips=args.stop_pips,
             disable_oco=args.disable_oco,
         )
+    elif args.mode == "mt5":
+        connector = MT5Connector(
+            login=int(MT5_LOGIN or "0"),
+            password=MT5_PASSWORD or "",
+            server=MT5_SERVER or "",
+            terminal_path=MT5_TERMINAL_PATH,
+        )
+        try:
+            connector.connect()
+            run_mt5_trade(
+                connector=connector,
+                symbol=MT5_SYMBOL or args.symbol,
+                interval=args.interval,
+                limit=args.limit,
+                fast=args.fast,
+                slow=args.slow,
+                rsi_period=args.rsi_period,
+                order_pct=args.order_pct,
+                stop_pips=args.stop_pips,
+            )
+        finally:
+            connector.shutdown()
     elif args.mode == "grid-backtest":
         results = run_grid_backtest(
             symbol=args.symbol,

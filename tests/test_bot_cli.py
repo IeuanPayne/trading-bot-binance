@@ -60,6 +60,45 @@ def test_bot_main_rejects_invalid_order_pct(monkeypatch):
         main()
 
 
+def test_bot_main_calls_mt5_mode(monkeypatch):
+    args = [
+        "trading_bot.bot",
+        "--mode",
+        "mt5",
+        "--interval",
+        "15m",
+    ]
+    monkeypatch.setattr("sys.argv", args)
+
+    monkeypatch.setattr("trading_bot.bot.MT5_LOGIN", "123456")
+    monkeypatch.setattr("trading_bot.bot.MT5_PASSWORD", "pass")
+    monkeypatch.setattr("trading_bot.bot.MT5_SERVER", "server")
+    monkeypatch.setattr("trading_bot.bot.MT5_SYMBOL", "BTCUSD")
+    monkeypatch.setattr("trading_bot.bot.validate_runtime_args", lambda mode, order_pct, stop_pips: None)
+
+    called = {"connect": 0, "shutdown": 0, "run": 0}
+
+    class FakeConnector:
+        def connect(self):
+            called["connect"] += 1
+
+        def shutdown(self):
+            called["shutdown"] += 1
+
+    monkeypatch.setattr("trading_bot.bot.MT5Connector", lambda **kwargs: FakeConnector())
+
+    def fake_run_mt5_trade(**kwargs):
+        called["run"] += 1
+        assert kwargs["symbol"] == "BTCUSD"
+
+    monkeypatch.setattr("trading_bot.bot.run_mt5_trade", fake_run_mt5_trade)
+    main()
+
+    assert called["connect"] == 1
+    assert called["run"] == 1
+    assert called["shutdown"] == 1
+
+
 def test_bot_main_backtest_smoke_runs_real_backtest(monkeypatch):
     args = ["trading_bot.bot", "--mode", "backtest", "--symbol", "BTCUSDT", "--interval", "15m", "--limit", "10"]
     monkeypatch.setattr("sys.argv", args)

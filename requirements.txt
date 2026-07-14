@@ -5,3 +5,4 @@ numpy>=1.23
 loguru>=0.7.0
 python-dotenv>=0.21
 pytest
+MetaTrader5>=5.0.45
