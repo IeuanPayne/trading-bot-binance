@@ -20,12 +20,19 @@ from trading_bot.config import (
     LONDON_END,
     LONDON_START,
     MAX_SPREAD_PIPS,
+    MT5_AUTO_MAGIC,
+    MT5_BASE_MAGIC,
     MT5_LOGIN,
     MT5_PASSWORD,
+    MT5_RISK_PCT,
     MT5_SERVER,
+    MT5_SLIPPAGE,
+    MT5_SL_PIPS,
     MT5_STATE_FILE,
     MT5_SYMBOL,
     MT5_TERMINAL_PATH,
+    MT5_TP_PIPS,
+    MT5_USE_RISK_PCT,
     NEWYORK_END,
     NEWYORK_START,
     PIP_SIZE,
@@ -38,6 +45,22 @@ from trading_bot.mt5_execution import run_mt5_trade
 
 
 logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
+
+_INTERVAL_TO_PERIOD = {
+    "1m": 1,
+    "5m": 5,
+    "15m": 15,
+    "30m": 30,
+    "1h": 60,
+    "4h": 240,
+    "1d": 1440,
+}
+
+
+def _effective_magic(interval: str, base_magic: int, auto_magic: bool) -> int:
+    if not auto_magic:
+        return base_magic
+    return base_magic + _INTERVAL_TO_PERIOD.get(interval, 0)
 
 
 def _interval_to_seconds(interval: str) -> int:
@@ -59,11 +82,14 @@ def _next_run_delay(interval_seconds: int, buffer_seconds: int) -> float:
 
 
 def _run_cycle(args) -> None:
+    magic = _effective_magic(args.interval, args.base_magic, args.auto_magic)
     connector = MT5Connector(
         login=int(MT5_LOGIN or "0"),
         password=MT5_PASSWORD or "",
         server=MT5_SERVER or "",
         terminal_path=MT5_TERMINAL_PATH,
+        deviation=args.slippage,
+        magic=magic,
     )
     try:
         connector.connect()
@@ -86,7 +112,12 @@ def _run_cycle(args) -> None:
             max_spread_pips=args.max_spread_pips,
             pip_size=args.pip_size,
             order_pct=args.order_pct,
+            use_risk_pct=args.use_risk_pct,
+            risk_pct=args.risk_pct,
+            sl_pips=args.sl_pips,
+            tp_pips=args.tp_pips,
             stop_pips=args.stop_pips,
+            magic=magic,
             state_file=args.state_file,
         )
     finally:
@@ -112,6 +143,13 @@ def main() -> None:
     parser.add_argument("--max-spread-pips", type=float, default=MAX_SPREAD_PIPS)
     parser.add_argument("--pip-size", type=float, default=PIP_SIZE)
     parser.add_argument("--order-pct", type=float, default=0.01)
+    parser.add_argument("--use-risk-pct", action=argparse.BooleanOptionalAction, default=MT5_USE_RISK_PCT)
+    parser.add_argument("--risk-pct", type=float, default=MT5_RISK_PCT)
+    parser.add_argument("--sl-pips", type=float, default=MT5_SL_PIPS)
+    parser.add_argument("--tp-pips", type=float, default=MT5_TP_PIPS)
+    parser.add_argument("--slippage", type=int, default=MT5_SLIPPAGE)
+    parser.add_argument("--auto-magic", action=argparse.BooleanOptionalAction, default=MT5_AUTO_MAGIC)
+    parser.add_argument("--base-magic", type=int, default=MT5_BASE_MAGIC)
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--state-file", default=MT5_STATE_FILE)
     parser.add_argument("--duration-hours", type=float, default=24.0)

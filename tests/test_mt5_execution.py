@@ -37,7 +37,7 @@ class FakeMT5Connector:
         )
         return df
 
-    def get_net_position(self, symbol: str):
+    def get_net_position(self, symbol: str, magic: int | None = None):
         return self.position
 
     def get_symbol_price(self, symbol: str, side: str = "BUY") -> float:
@@ -55,6 +55,12 @@ class FakeMT5Connector:
     def volume_from_allocation(self, symbol: str, allocation: float, entry_price: float) -> float:
         assert allocation > 0
         assert entry_price > 0
+        return 0.01
+
+    def volume_from_risk_pips(self, symbol: str, risk_amount: float, sl_pips: float, pip_size: float) -> float:
+        assert risk_amount > 0
+        assert sl_pips > 0
+        assert pip_size > 0
         return 0.01
 
     def place_market_order(self, symbol: str, side: str, volume: float, sl: float, tp: float, comment: str):

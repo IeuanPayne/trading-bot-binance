@@ -30,6 +30,7 @@ class MT5Position:
     side: str
     volume: float
     price_open: float
+    magic: int
 
 
 class MT5Connector:
@@ -132,18 +133,43 @@ class MT5Connector:
             return 0.0
         return float(tick.ask - tick.bid) / pip_size
 
-    def get_net_position(self, symbol: str) -> Optional[MT5Position]:
+    def get_net_position(self, symbol: str, magic: Optional[int] = None) -> Optional[MT5Position]:
         positions = mt5.positions_get(symbol=symbol)
         if not positions:
             return None
-        pos = positions[0]
+        pos = None
+        if magic is None:
+            pos = positions[0]
+        else:
+            for candidate in positions:
+                if int(getattr(candidate, "magic", 0)) == int(magic):
+                    pos = candidate
+                    break
+        if pos is None:
+            return None
         side = "BUY" if int(pos.type) == mt5.POSITION_TYPE_BUY else "SELL"
         return MT5Position(
             ticket=int(pos.ticket),
             side=side,
             volume=float(pos.volume),
             price_open=float(pos.price_open),
+            magic=int(getattr(pos, "magic", 0)),
         )
+
+    def volume_from_risk_pips(self, symbol: str, risk_amount: float, sl_pips: float, pip_size: float) -> float:
+        """Mirror the EA risk model where risk is sized against SL in pips."""
+        if risk_amount <= 0 or sl_pips <= 0 or pip_size <= 0:
+            return 0.0
+
+        # EA equivalent:
+        # sl_value = SL_Pips * PipSize      (dollar risk per 0.01 lot)
+        # lots = risk_amt / (sl_value * 100)
+        sl_value = sl_pips * pip_size
+        denominator = sl_value * 100.0
+        if denominator <= 0:
+            return 0.0
+        lots = risk_amount / denominator
+        return self.normalize_volume(symbol, lots)
 
     def normalize_volume(self, symbol: str, volume: float) -> float:
         info = mt5.symbol_info(symbol)

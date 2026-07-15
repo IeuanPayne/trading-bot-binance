@@ -12,6 +12,7 @@ from .config import (
     MAX_DAILY_LOSS_USDT,
     MAX_DRAWDOWN_PCT,
     MAX_TRADES_PER_DAY,
+    MT5_BASE_MAGIC,
     PIP_SIZE,
 )
 from .mt5_connector import MT5Connector
@@ -121,7 +122,12 @@ def run_mt5_trade(
     max_spread_pips: float = MAX_SPREAD_PIPS,
     pip_size: float = PIP_SIZE,
     order_pct: float = 0.01,
+    use_risk_pct: bool = True,
+    risk_pct: float = 1.0,
+    sl_pips: float | None = None,
+    tp_pips: float | None = None,
     stop_pips: float = 0.7,
+    magic: int | None = MT5_BASE_MAGIC,
     state_file: str = "mt5_trading_state.db",
 ) -> None:
     """Run one MT5 strategy cycle at candle close."""
@@ -176,7 +182,7 @@ def run_mt5_trade(
         if was_tripped:
             send_alert(f"MT5 risk breaker cleared for {symbol}. Trading can resume.", level="INFO")
 
-    position = connector.get_net_position(symbol)
+    position = connector.get_net_position(symbol, magic=magic)
     if position is not None:
         logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
         state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "position_open"})
@@ -214,18 +220,42 @@ def run_mt5_trade(
         return
 
     balance = connector.get_account_balance()
-    allocation = balance * order_pct
-    volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
+    effective_sl_pips = sl_pips if sl_pips is not None else 0.0
+    effective_tp_pips = tp_pips if tp_pips is not None else 0.0
+
+    if effective_sl_pips > 0:
+        sl_distance = effective_sl_pips * pip_size
+    else:
+        # Backward compatibility: legacy stop_pips is an absolute price distance.
+        sl_distance = stop_pips
+    if effective_tp_pips > 0:
+        tp_distance = effective_tp_pips * pip_size
+    else:
+        tp_distance = sl_distance
+
+    if use_risk_pct and effective_sl_pips > 0:
+        risk_amount = balance * (risk_pct / 100.0)
+        volume = connector.volume_from_risk_pips(
+            symbol=symbol,
+            risk_amount=risk_amount,
+            sl_pips=effective_sl_pips,
+            pip_size=pip_size,
+        )
+        allocation = risk_amount
+    else:
+        allocation = balance * order_pct
+        volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
+
     if volume <= 0:
         logger.error("Calculated MT5 volume is too small for {} (allocation={})", symbol, allocation)
         return
 
     if side == "BUY":
-        sl = entry_price - stop_pips
-        tp = entry_price + stop_pips
+        sl = entry_price - sl_distance
+        tp = entry_price + tp_distance
     else:
-        sl = entry_price + stop_pips
-        tp = entry_price - stop_pips
+        sl = entry_price + sl_distance
+        tp = entry_price - tp_distance
 
     response = connector.place_market_order(
         symbol=symbol,

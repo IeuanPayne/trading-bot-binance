@@ -57,6 +57,13 @@ SESSION_TZ_OFFSET = _as_int(os.getenv("SESSION_TZ_OFFSET"), default=3)
 MAX_SPREAD_PIPS = _as_float(os.getenv("MAX_SPREAD_PIPS"), default=3.0)
 MODELED_SPREAD_PIPS = _as_float(os.getenv("MODELED_SPREAD_PIPS"), default=0.0)
 PIP_SIZE = _as_float(os.getenv("PIP_SIZE"), default=0.10)
+MT5_USE_RISK_PCT = _as_bool(os.getenv("MT5_USE_RISK_PCT", "True"), default=True)
+MT5_RISK_PCT = _as_float(os.getenv("MT5_RISK_PCT"), default=1.0)
+MT5_SL_PIPS = _as_float(os.getenv("MT5_SL_PIPS"), default=70.0)
+MT5_TP_PIPS = _as_float(os.getenv("MT5_TP_PIPS"), default=70.0)
+MT5_SLIPPAGE = _as_int(os.getenv("MT5_SLIPPAGE"), default=30)
+MT5_AUTO_MAGIC = _as_bool(os.getenv("MT5_AUTO_MAGIC", "True"), default=True)
+MT5_BASE_MAGIC = _as_int(os.getenv("MT5_BASE_MAGIC"), default=20260629)
 
 # Alerting settings
 ALERTS_ENABLED = _as_bool(os.getenv("ALERTS_ENABLED", "False"), default=False)
@@ -113,6 +120,14 @@ def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None
         raise ValueError("MODELED_SPREAD_PIPS must be >= 0")
     if PIP_SIZE <= 0:
         raise ValueError("PIP_SIZE must be > 0")
+    if MT5_RISK_PCT < 0:
+        raise ValueError("MT5_RISK_PCT must be >= 0")
+    if MT5_SL_PIPS <= 0:
+        raise ValueError("MT5_SL_PIPS must be > 0")
+    if MT5_TP_PIPS <= 0:
+        raise ValueError("MT5_TP_PIPS must be > 0")
+    if MT5_SLIPPAGE < 0:
+        raise ValueError("MT5_SLIPPAGE must be >= 0")
 
     if mode == "paper" and not BINANCE_TESTNET and not ALLOW_LIVE_TRADING:
         raise ValueError(
