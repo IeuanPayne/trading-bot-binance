@@ -41,8 +41,8 @@ class FakeTrader:
             "low": [1.0] * rows,
             "close": [1.0] * rows,
             "volume": [1.0] * rows,
-            "open_time": pd.date_range("2024-01-01", periods=rows, freq="1min"),
-            "close_time": pd.date_range("2024-01-01", periods=rows, freq="1min"),
+            "open_time": pd.date_range("2024-01-01 14:00", periods=rows, freq="1min"),
+            "close_time": pd.date_range("2024-01-01 14:00", periods=rows, freq="1min"),
         }
         return pd.DataFrame(data)
 
@@ -165,13 +165,13 @@ def test_run_paper_trade_long_signal_places_market_buy(monkeypatch, tmp_path):
     fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
     monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
         return signals
 
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", fake_signals)
     run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=str(tmp_path / "state.json"))
 
     assert len(fake.market_orders) == 1
@@ -183,7 +183,7 @@ def test_run_paper_trade_long_signal_places_market_buy(monkeypatch, tmp_path):
     assert fake.oco_orders[0]["list_client_order_id"].startswith("tb_oco_list")
 
 
-def test_run_paper_trade_short_signal_closes_position(monkeypatch, tmp_path):
+def test_run_paper_trade_short_signal_does_not_flip_existing_long(monkeypatch, tmp_path):
     monkeypatch.setattr("trading_bot.execution.BINANCE_API_KEY", "key")
     monkeypatch.setattr("trading_bot.execution.BINANCE_API_SECRET", "secret")
     monkeypatch.setattr("trading_bot.execution.BINANCE_TESTNET", True)
@@ -191,19 +191,16 @@ def test_run_paper_trade_short_signal_closes_position(monkeypatch, tmp_path):
     fake = FakeTrader(symbol_price=50.0, quote_free=0.0, base_free=0.01, rounded_qty=0.01)
     monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * len(df)
         signals["short_signal"] = [False] * (len(df) - 1) + [True]
         return signals
 
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", fake_signals)
     run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=str(tmp_path / "state.db"))
 
-    # Existing base balance should still be closed with a real SELL on short signal.
-    assert len(fake.market_orders) == 1
-    assert fake.market_orders[0]["side"] == "SELL"
-    assert fake.market_orders[0]["client_order_id"].startswith("tb_sell_")
+    assert len(fake.market_orders) == 0
 
 
 def test_run_paper_trade_short_signal_opens_synthetic_short(monkeypatch, tmp_path):
@@ -214,13 +211,13 @@ def test_run_paper_trade_short_signal_opens_synthetic_short(monkeypatch, tmp_pat
     fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
     monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * len(df)
         signals["short_signal"] = [False] * (len(df) - 1) + [True]
         return signals
 
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", fake_signals)
     state_file = str(tmp_path / "state.db")
     run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
 
@@ -241,23 +238,23 @@ def test_run_paper_trade_closes_synthetic_short_on_opposite_signal(monkeypatch, 
     fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
     monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
 
-    def short_signals(df, ema_fast, ema_slow, rsi_period):
+    def short_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * len(df)
         signals["short_signal"] = [False] * (len(df) - 1) + [True]
         return signals
 
     state_file = str(tmp_path / "state.db")
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", short_signals)
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", short_signals)
     run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
 
-    def long_signals(df, ema_fast, ema_slow, rsi_period):
+    def long_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
         return signals
 
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", long_signals)
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", long_signals)
     run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
 
     store = TradingStateStore(state_file)
@@ -290,19 +287,87 @@ def test_run_paper_trade_skips_duplicate_signal(monkeypatch, tmp_path):
     fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
     monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
         return signals
 
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", fake_signals)
     state_file = str(tmp_path / "state.json")
 
     run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
     run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
 
     assert len(fake.market_orders) == 1
+
+
+def test_run_paper_trade_skips_signal_outside_session(monkeypatch, tmp_path):
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_KEY", "key")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_TESTNET", True)
+
+    fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
+
+    def overnight_klines(symbol: str, interval: str, limit: int):
+        rows = max(limit, 2)
+        return pd.DataFrame(
+            {
+                "open": [1.0] * rows,
+                "high": [1.0] * rows,
+                "low": [1.0] * rows,
+                "close": [1.0] * rows,
+                "volume": [1.0] * rows,
+                "open_time": pd.date_range("2024-01-01 00:00", periods=rows, freq="1min"),
+                "close_time": pd.date_range("2024-01-01 00:00", periods=rows, freq="1min"),
+            }
+        )
+
+    fake.fetch_klines = overnight_klines
+    monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
+
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
+        signals = df.copy()
+        signals["long_signal"] = [False] * (len(df) - 1) + [True]
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", fake_signals)
+
+    state_file = str(tmp_path / "state.db")
+    run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
+
+    store = TradingStateStore(state_file)
+    signal_id = "2024-01-01 00:01:00:1:0"
+    assert len(fake.market_orders) == 0
+    assert store.is_signal_processed("BTCUSDT", signal_id) is True
+
+
+def test_run_paper_trade_skips_modeled_wide_spread(monkeypatch, tmp_path):
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_KEY", "key")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr("trading_bot.execution.BINANCE_TESTNET", True)
+
+    fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
+    monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
+
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
+        signals = df.copy()
+        signals["long_signal"] = [False] * (len(df) - 1) + [True]
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", fake_signals)
+    run_paper_trade(
+        "BTCUSDT",
+        interval="15m",
+        limit=2,
+        modeled_spread_pips=4.0,
+        max_spread_pips=3.0,
+        state_file=str(tmp_path / "state.db"),
+    )
+
+    assert len(fake.market_orders) == 0
 
 
 def test_run_paper_trade_oco_failure_triggers_emergency_flatten(monkeypatch, tmp_path):
@@ -318,13 +383,13 @@ def test_run_paper_trade_oco_failure_triggers_emergency_flatten(monkeypatch, tmp
 
     fake.create_oco_order = failing_oco
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
         return signals
 
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", fake_signals)
     state_file = str(tmp_path / "state.db")
     run_paper_trade("BTCUSDT", interval="15m", limit=2, state_file=state_file)
 
@@ -362,13 +427,13 @@ def test_run_paper_trade_sends_alert_when_breaker_activates(monkeypatch, tmp_pat
 
     monkeypatch.setattr("trading_bot.execution.send_alert", fake_alert)
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
         return signals
 
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", fake_signals)
 
     state_file = str(tmp_path / "state.db")
     store = TradingStateStore(state_file)
@@ -402,7 +467,7 @@ def test_run_paper_trade_sends_alert_on_emergency_flatten(monkeypatch, tmp_path)
         raise RuntimeError("oco rejected")
 
     fake.create_oco_order = failing_oco
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", lambda df, ema_fast, ema_slow, rsi_period: df.assign(long_signal=[False] * (len(df) - 1) + [True], short_signal=[False] * len(df)))
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", lambda df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest: df.assign(long_signal=[False] * (len(df) - 1) + [True], short_signal=[False] * len(df)))
 
     sent_alerts = []
     monkeypatch.setattr("trading_bot.execution.send_alert", lambda msg, level="ERROR": sent_alerts.append((level, msg)) or True)
@@ -436,13 +501,13 @@ def test_run_paper_trade_blocks_new_entry_when_risk_breaker_trips(monkeypatch, t
     fake = FakeTrader(symbol_price=50.0, quote_free=1000.0, base_free=0.0, rounded_qty=0.02)
     monkeypatch.setattr("trading_bot.execution.BinanceConnector", lambda *args, **kwargs: fake)
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
         return signals
 
-    monkeypatch.setattr("trading_bot.execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.execution.prepare_ema_channel_signals", fake_signals)
 
     state_file = str(tmp_path / "state.db")
     store = TradingStateStore(state_file)

@@ -31,8 +31,8 @@ class FakeMT5Connector:
                 "low": [99.0] * rows,
                 "close": [100.0] * rows,
                 "volume": [1.0] * rows,
-                "open_time": pd.date_range("2026-01-01", periods=rows, freq="15min", tz="UTC"),
-                "close_time": pd.date_range("2026-01-01", periods=rows, freq="15min", tz="UTC"),
+                "open_time": pd.date_range("2026-01-01 14:00", periods=rows, freq="15min", tz="UTC"),
+                "close_time": pd.date_range("2026-01-01 14:00", periods=rows, freq="15min", tz="UTC"),
             }
         )
         return df
@@ -41,7 +41,10 @@ class FakeMT5Connector:
         return self.position
 
     def get_symbol_price(self, symbol: str, side: str = "BUY") -> float:
-        return 100.0 if side.upper() == "BUY" else 99.5
+        return 100.0 if side.upper() == "BUY" else 99.9
+
+    def get_spread_pips(self, symbol: str, pip_size: float = 0.10) -> float:
+        return 1.0
 
     def get_account_balance(self) -> float:
         return 10_000.0
@@ -75,13 +78,13 @@ class FakeMT5Connector:
 def test_mt5_trade_marks_signal_and_skips_duplicate(monkeypatch, tmp_path):
     connector = FakeMT5Connector()
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
         return signals
 
-    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_channel_signals", fake_signals)
 
     state_file = str(tmp_path / "mt5_state.db")
     run_mt5_trade(connector=connector, symbol="BTCUSD", limit=10, state_file=state_file)
@@ -93,13 +96,13 @@ def test_mt5_trade_marks_signal_and_skips_duplicate(monkeypatch, tmp_path):
 def test_mt5_trade_breaker_blocks_entry(monkeypatch, tmp_path):
     connector = FakeMT5Connector()
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
         return signals
 
-    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_channel_signals", fake_signals)
     monkeypatch.setattr("trading_bot.mt5_execution.MAX_TRADES_PER_DAY", 1)
     monkeypatch.setattr("trading_bot.mt5_execution.MAX_DAILY_LOSS_USDT", 0.0)
     monkeypatch.setattr("trading_bot.mt5_execution.MAX_DRAWDOWN_PCT", 0.0)
@@ -128,17 +131,17 @@ def test_mt5_trade_breaker_blocks_entry(monkeypatch, tmp_path):
     assert runtime.get("breaker_tripped") is True
 
 
-def test_mt5_trade_closes_opposite_and_flips(monkeypatch, tmp_path):
+def test_mt5_trade_does_not_flip_existing_position(monkeypatch, tmp_path):
     connector = FakeMT5Connector()
     connector.position = _FakePosition(ticket=42, side="BUY", volume=0.01, price_open=100.0)
 
-    def fake_signals(df, ema_fast, ema_slow, rsi_period):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
         signals = df.copy()
         signals["long_signal"] = [False] * len(df)
         signals["short_signal"] = [False] * (len(df) - 1) + [True]
         return signals
 
-    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_rsi_signals", fake_signals)
+    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_channel_signals", fake_signals)
 
     state_file = str(tmp_path / "mt5_state.db")
     store = TradingStateStore(state_file)
@@ -146,6 +149,23 @@ def test_mt5_trade_closes_opposite_and_flips(monkeypatch, tmp_path):
 
     run_mt5_trade(connector=connector, symbol="BTCUSD", limit=10, state_file=state_file)
 
-    assert len(connector.closed) == 1
-    assert len(connector.market_orders) == 1
-    assert connector.market_orders[0]["side"] == "SELL"
+    assert len(connector.closed) == 0
+    assert len(connector.market_orders) == 0
+
+
+def test_mt5_trade_skips_wide_spread(monkeypatch, tmp_path):
+    connector = FakeMT5Connector()
+    connector.get_spread_pips = lambda symbol, pip_size=0.10: 4.0
+
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
+        signals = df.copy()
+        signals["long_signal"] = [False] * (len(df) - 1) + [True]
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_channel_signals", fake_signals)
+
+    state_file = str(tmp_path / "mt5_state.db")
+    run_mt5_trade(connector=connector, symbol="BTCUSD", limit=10, state_file=state_file)
+
+    assert len(connector.market_orders) == 0

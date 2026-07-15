@@ -2,38 +2,80 @@ import argparse
 from loguru import logger
 
 from .binance_connector import BinanceConnector
-from .backtest import emarsi_backtest
+from .backtest import ema_channel_backtest
 from .execution import run_paper_trade
 from .mt5_execution import run_mt5_trade
 from .mt5_connector import MT5Connector
 from .grid_backtest import run_grid_backtest, print_grid_summary
 from .metrics_persistence import HTMLReportGenerator
 from .config import (
+    EMA1_LEN,
+    EMA2_LEN,
+    EMA3_LEN,
+    EMA4_LEN,
+    EMA5_LEN,
     INITIAL_CAPITAL,
+    LONDON_END,
+    LONDON_START,
     MAX_PCT_PER_TRADE,
+    MAX_SPREAD_PIPS,
+    MODELED_SPREAD_PIPS,
     MT5_LOGIN,
     MT5_PASSWORD,
     MT5_SERVER,
     MT5_SYMBOL,
     MT5_STATE_FILE,
     MT5_TERMINAL_PATH,
+    NEWYORK_END,
+    NEWYORK_START,
+    PIP_SIZE,
+    SESSION,
+    SESSION_TZ_OFFSET,
     validate_runtime_args,
 )
 
 logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
 
 
-def run_backtest(symbol: str, interval: str = "15m", limit: int = 500, fast: int = 9, slow: int = 21, rsi_period: int = 14, export_report: bool = False):
+def run_backtest(
+    symbol: str,
+    interval: str = "15m",
+    limit: int = 500,
+    fast: int = EMA1_LEN,
+    slow: int = EMA3_LEN,
+    ema2: int = EMA2_LEN,
+    ema4: int = EMA4_LEN,
+    ema5: int = EMA5_LEN,
+    session: str = SESSION,
+    london_start: int = LONDON_START,
+    london_end: int = LONDON_END,
+    newyork_start: int = NEWYORK_START,
+    newyork_end: int = NEWYORK_END,
+    session_tz_offset: int = SESSION_TZ_OFFSET,
+    modeled_spread_pips: float = MODELED_SPREAD_PIPS,
+    max_spread_pips: float = MAX_SPREAD_PIPS,
+    export_report: bool = False,
+):
     c = BinanceConnector()
     df = c.fetch_klines(symbol, interval, limit)
     if df.empty:
         logger.error("No data fetched for {}", symbol)
         return
-    results = emarsi_backtest(
+    results = ema_channel_backtest(
         df,
         ema_fast=fast,
+        ema_mid=ema2,
         ema_slow=slow,
-        rsi_period=rsi_period,
+        ema_slower=ema4,
+        ema_slowest=ema5,
+        session=session,
+        london_start=london_start,
+        london_end=london_end,
+        newyork_start=newyork_start,
+        newyork_end=newyork_end,
+        session_tz_offset=session_tz_offset,
+        modeled_spread_pips=modeled_spread_pips,
+        max_spread_pips=max_spread_pips,
         initial_capital=INITIAL_CAPITAL,
         pct_per_trade=MAX_PCT_PER_TRADE,
     )
@@ -55,7 +97,10 @@ def run_backtest(symbol: str, interval: str = "15m", limit: int = 500, fast: int
         report_file = HTMLReportGenerator.generate_report(
             symbol=symbol,
             ema_fast=fast,
+            ema_mid=ema2,
             ema_slow=slow,
+            ema_slower=ema4,
+            ema_slowest=ema5,
             timeframe=interval,
             metrics=metrics,
             trades=trades,
@@ -68,10 +113,21 @@ def main():
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--interval", default="15m")
     parser.add_argument("--limit", type=int, default=500)
-    parser.add_argument("--fast", type=int, default=9)
-    parser.add_argument("--slow", type=int, default=21)
-    parser.add_argument("--rsi-period", type=int, default=14)
+    parser.add_argument("--ema1-len", "--fast", dest="ema1_len", type=int, default=EMA1_LEN)
+    parser.add_argument("--ema2-len", dest="ema2_len", type=int, default=EMA2_LEN)
+    parser.add_argument("--ema3-len", "--slow", dest="ema3_len", type=int, default=EMA3_LEN)
+    parser.add_argument("--ema4-len", dest="ema4_len", type=int, default=EMA4_LEN)
+    parser.add_argument("--ema5-len", dest="ema5_len", type=int, default=EMA5_LEN)
     parser.add_argument("--mode", choices=["backtest", "paper", "grid-backtest", "mt5"], default="backtest")
+    parser.add_argument("--session", choices=["London", "NewYork", "Both", "Off"], default=SESSION)
+    parser.add_argument("--london-start", type=int, default=LONDON_START)
+    parser.add_argument("--london-end", type=int, default=LONDON_END)
+    parser.add_argument("--newyork-start", type=int, default=NEWYORK_START)
+    parser.add_argument("--newyork-end", type=int, default=NEWYORK_END)
+    parser.add_argument("--session-tz-offset", type=int, default=SESSION_TZ_OFFSET)
+    parser.add_argument("--max-spread-pips", type=float, default=MAX_SPREAD_PIPS)
+    parser.add_argument("--modeled-spread-pips", type=float, default=MODELED_SPREAD_PIPS)
+    parser.add_argument("--pip-size", type=float, default=PIP_SIZE)
     parser.add_argument("--order-pct", type=float, default=MAX_PCT_PER_TRADE)
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--disable-oco", action="store_true")
@@ -90,9 +146,19 @@ def main():
             symbol=args.symbol,
             interval=args.interval,
             limit=args.limit,
-            fast=args.fast,
-            slow=args.slow,
-            rsi_period=args.rsi_period,
+            fast=args.ema1_len,
+            slow=args.ema3_len,
+            ema2=args.ema2_len,
+            ema4=args.ema4_len,
+            ema5=args.ema5_len,
+            session=args.session,
+            london_start=args.london_start,
+            london_end=args.london_end,
+            newyork_start=args.newyork_start,
+            newyork_end=args.newyork_end,
+            session_tz_offset=args.session_tz_offset,
+            max_spread_pips=args.max_spread_pips,
+            modeled_spread_pips=args.modeled_spread_pips,
             order_pct=args.order_pct,
             stop_pips=args.stop_pips,
             disable_oco=args.disable_oco,
@@ -112,9 +178,19 @@ def main():
                 symbol=MT5_SYMBOL or args.symbol,
                 interval=args.interval,
                 limit=args.limit,
-                fast=args.fast,
-                slow=args.slow,
-                rsi_period=args.rsi_period,
+                fast=args.ema1_len,
+                slow=args.ema3_len,
+                ema2=args.ema2_len,
+                ema4=args.ema4_len,
+                ema5=args.ema5_len,
+                session=args.session,
+                london_start=args.london_start,
+                london_end=args.london_end,
+                newyork_start=args.newyork_start,
+                newyork_end=args.newyork_end,
+                session_tz_offset=args.session_tz_offset,
+                max_spread_pips=args.max_spread_pips,
+                pip_size=args.pip_size,
                 order_pct=args.order_pct,
                 stop_pips=args.stop_pips,
                 state_file=args.state_file,
@@ -125,12 +201,42 @@ def main():
         results = run_grid_backtest(
             symbol=args.symbol,
             limit=args.limit,
-            rsi_period=args.rsi_period,
+            ema1_len=args.ema1_len,
+            ema2_len=args.ema2_len,
+            ema3_len=args.ema3_len,
+            ema4_len=args.ema4_len,
+            ema5_len=args.ema5_len,
+            session=args.session,
+            london_start=args.london_start,
+            london_end=args.london_end,
+            newyork_start=args.newyork_start,
+            newyork_end=args.newyork_end,
+            session_tz_offset=args.session_tz_offset,
+            modeled_spread_pips=args.modeled_spread_pips,
+            max_spread_pips=args.max_spread_pips,
             output_file=args.output,
         )
         print_grid_summary(results)
     else:
-        run_backtest(args.symbol, args.interval, args.limit, args.fast, args.slow, args.rsi_period, export_report=args.export_report)
+        run_backtest(
+            symbol=args.symbol,
+            interval=args.interval,
+            limit=args.limit,
+            fast=args.ema1_len,
+            slow=args.ema3_len,
+            ema2=args.ema2_len,
+            ema4=args.ema4_len,
+            ema5=args.ema5_len,
+            session=args.session,
+            london_start=args.london_start,
+            london_end=args.london_end,
+            newyork_start=args.newyork_start,
+            newyork_end=args.newyork_end,
+            session_tz_offset=args.session_tz_offset,
+            modeled_spread_pips=args.modeled_spread_pips,
+            max_spread_pips=args.max_spread_pips,
+            export_report=args.export_report,
+        )
 
 
 if __name__ == "__main__":

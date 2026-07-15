@@ -5,12 +5,14 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from .alerts import send_alert
-from .backtest import prepare_ema_rsi_signals
+from .backtest import in_session_window, prepare_ema_channel_signals
 from .config import (
+    MAX_SPREAD_PIPS,
     MAX_CONSECUTIVE_LOSSES,
     MAX_DAILY_LOSS_USDT,
     MAX_DRAWDOWN_PCT,
     MAX_TRADES_PER_DAY,
+    PIP_SIZE,
 )
 from .mt5_connector import MT5Connector
 from .state_store import TradingStateStore
@@ -89,14 +91,35 @@ def _record_exit_risk_metrics(state_store: TradingStateStore, symbol: str, exit_
     state_store.set_runtime_state("mt5_risk_state", risk_state)
 
 
+def _prepare_strategy_signals(df, fast: int, slow: int, ema2: int, ema4: int, ema5: int):
+    return prepare_ema_channel_signals(
+        df,
+        ema_fast=fast,
+        ema_mid=ema2,
+        ema_slow=slow,
+        ema_slower=ema4,
+        ema_slowest=ema5,
+    )
+
+
 def run_mt5_trade(
     connector: MT5Connector,
     symbol: str,
     interval: str = "15m",
     limit: int = 500,
-    fast: int = 9,
+    fast: int = 8,
     slow: int = 21,
-    rsi_period: int = 14,
+    ema2: int = 13,
+    ema4: int = 34,
+    ema5: int = 55,
+    session: str = "Both",
+    london_start: int = 11,
+    london_end: int = 20,
+    newyork_start: int = 16,
+    newyork_end: int = 25,
+    session_tz_offset: int = 3,
+    max_spread_pips: float = MAX_SPREAD_PIPS,
+    pip_size: float = PIP_SIZE,
     order_pct: float = 0.01,
     stop_pips: float = 0.7,
     state_file: str = "mt5_trading_state.db",
@@ -108,12 +131,21 @@ def run_mt5_trade(
         logger.error("No MT5 candle data available for {}", symbol)
         return
 
-    signals = prepare_ema_rsi_signals(df, ema_fast=fast, ema_slow=slow, rsi_period=rsi_period)
+    signals = _prepare_strategy_signals(df, fast, slow, ema2, ema4, ema5)
     latest = signals.iloc[-1]
     long_signal = bool(latest["long_signal"])
     short_signal = bool(latest["short_signal"])
     latest_close_time = str(latest.get("close_time"))
     signal_id = f"{latest_close_time}:{int(long_signal)}:{int(short_signal)}"
+    session_allowed = in_session_window(
+        latest.get("close_time"),
+        session=session,
+        london_start=london_start,
+        london_end=london_end,
+        newyork_start=newyork_start,
+        newyork_end=newyork_end,
+        session_tz_offset=session_tz_offset,
+    )
 
     if state_store.is_signal_processed(symbol, signal_id):
         logger.info("MT5 signal already processed for {} at {}. Skipping duplicate.", symbol, latest_close_time)
@@ -145,33 +177,9 @@ def run_mt5_trade(
             send_alert(f"MT5 risk breaker cleared for {symbol}. Trading can resume.", level="INFO")
 
     position = connector.get_net_position(symbol)
-
-    if position is not None:
-        if position.side == "BUY" and short_signal:
-            logger.info("MT5 opposite short signal detected: closing BUY position first")
-            connector.close_position(symbol, position, comment="spec-opposite-close-buy")
-            _record_exit_risk_metrics(state_store, symbol, _safe_float(latest["close"]))
-            state_store.clear_position(symbol)
-            state_store.mark_signal_processed(
-                symbol,
-                signal_id,
-                {"action": "close_buy", "reason": "opposite_signal", "price": _safe_float(latest["close"])},
-            )
-            position = None
-        elif position.side == "SELL" and long_signal:
-            logger.info("MT5 opposite long signal detected: closing SELL position first")
-            connector.close_position(symbol, position, comment="spec-opposite-close-sell")
-            _record_exit_risk_metrics(state_store, symbol, _safe_float(latest["close"]))
-            state_store.clear_position(symbol)
-            state_store.mark_signal_processed(
-                symbol,
-                signal_id,
-                {"action": "close_sell", "reason": "opposite_signal", "price": _safe_float(latest["close"])},
-            )
-            position = None
-
     if position is not None:
         logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
+        state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "position_open"})
         return
 
     if not long_signal and not short_signal:
@@ -181,6 +189,22 @@ def run_mt5_trade(
     if tripped:
         logger.warning("Skipping MT5 entry due to active risk breaker: {}", reason)
         state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": reason})
+        return
+
+    if not session_allowed:
+        logger.info("Skipping MT5 entry for {} because it is outside the configured session window.", symbol)
+        state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "out_of_session"})
+        return
+
+    spread_pips = connector.get_spread_pips(symbol, pip_size=pip_size)
+    if max_spread_pips > 0 and spread_pips > max_spread_pips:
+        logger.info(
+            "Skipping MT5 entry for {} because spread is too wide: {} > {} pips.",
+            symbol,
+            spread_pips,
+            max_spread_pips,
+        )
+        state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "spread_too_wide"})
         return
 
     side = "BUY" if long_signal else "SELL"
@@ -209,7 +233,7 @@ def run_mt5_trade(
         volume=volume,
         sl=sl,
         tp=tp,
-        comment="spec-ema-rsi",
+        comment="spec-ema-channel",
     )
     state_store.set_position(
         symbol,

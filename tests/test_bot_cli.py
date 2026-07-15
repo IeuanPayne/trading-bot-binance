@@ -9,11 +9,11 @@ def test_bot_main_calls_backtest_by_default(monkeypatch):
     monkeypatch.setattr("sys.argv", args)
     called = {"backtest": False}
 
-    def fake_run_backtest(symbol, interval, limit, fast, slow, rsi_period, export_report=False):
+    def fake_run_backtest(**kwargs):
         called["backtest"] = True
-        assert symbol == "BTCUSDT"
-        assert interval == "15m"
-        assert limit == 10
+        assert kwargs["symbol"] == "BTCUSDT"
+        assert kwargs["interval"] == "15m"
+        assert kwargs["limit"] == 10
 
     monkeypatch.setattr("trading_bot.bot.run_backtest", fake_run_backtest)
     main()
@@ -118,3 +118,51 @@ def test_bot_main_backtest_smoke_runs_real_backtest(monkeypatch):
 
     monkeypatch.setattr("trading_bot.bot.BinanceConnector", lambda *args, **kwargs: FakeConnector())
     main()
+
+
+def test_bot_main_passes_full_ema_set(monkeypatch):
+    args = [
+        "trading_bot.bot",
+        "--mode",
+        "paper",
+        "--ema1-len",
+        "9",
+        "--ema2-len",
+        "14",
+        "--ema3-len",
+        "22",
+        "--ema4-len",
+        "35",
+        "--ema5-len",
+        "56",
+    ]
+    monkeypatch.setattr("sys.argv", args)
+
+    received = {}
+
+    def fake_run_paper_trade(**kwargs):
+        received.update(kwargs)
+
+    monkeypatch.setattr("trading_bot.bot.run_paper_trade", fake_run_paper_trade)
+    main()
+
+    assert received["fast"] == 9
+    assert received["ema2"] == 14
+    assert received["slow"] == 22
+    assert received["ema4"] == 35
+    assert received["ema5"] == 56
+
+
+def test_bot_main_passes_modeled_spread_to_paper(monkeypatch):
+    args = ["trading_bot.bot", "--mode", "paper", "--modeled-spread-pips", "2.5"]
+    monkeypatch.setattr("sys.argv", args)
+
+    received = {}
+
+    def fake_run_paper_trade(**kwargs):
+        received.update(kwargs)
+
+    monkeypatch.setattr("trading_bot.bot.run_paper_trade", fake_run_paper_trade)
+    main()
+
+    assert received["modeled_spread_pips"] == 2.5

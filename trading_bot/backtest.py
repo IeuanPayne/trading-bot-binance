@@ -3,59 +3,153 @@ from typing import Any, List, Dict
 
 from .metrics import compute_trade_metrics
 
-# Strategy contract: Gold EMA Trend + RSI Filter (single-layer logic)
-# Entry long: EMA9 cross above EMA21 and 50 < RSI14 < 70.
-# Entry short: EMA9 cross below EMA21 and 30 < RSI14 < 50.
-# Exits: fixed 70 pip distance (stop_pips=0.7 absolute price units),
-# with 1:1 take-profit and optional opposite-signal close.
+# Strategy contract: EMA channel continuation with first-retest confirmation.
+# Entry long: EMA stack 1>2>3>4>5, close above channel, retest into channel,
+# then a confirming close back above the channel top.
+# Entry short: inverse of the above.
+# Exits: fixed stop distance (stop_pips absolute price units)
+# with 1:1 take-profit.
 
 
-def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    """Calculate RSI indicator."""
-    delta: pd.Series = series.diff()
-    gain: pd.Series = delta.clip(lower=0)
-    loss: pd.Series = -delta.clip(upper=0)
-    avg_gain: pd.Series = gain.rolling(period, min_periods=period).mean()
-    avg_loss: pd.Series = loss.rolling(period, min_periods=period).mean()
-    rs: pd.Series = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+def in_session_window(
+    timestamp: Any,
+    session: str = "Both",
+    london_start: int = 11,
+    london_end: int = 20,
+    newyork_start: int = 16,
+    newyork_end: int = 25,
+    session_tz_offset: int = 3,
+) -> bool:
+    """Match the friend EA's London/New York session gating using server time."""
+    if session == "Off":
+        return True
 
+    ts = pd.Timestamp(timestamp)
+    if pd.isna(ts):
+        return True
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    else:
+        ts = ts.tz_convert("UTC")
 
-def prepare_ema_rsi_signals(df: pd.DataFrame, ema_fast: int = 9, ema_slow: int = 21, rsi_period: int = 14) -> pd.DataFrame:
-    """Prepare EMA and RSI signals on OHLC dataframe."""
+    server_ts = ts + pd.Timedelta(hours=session_tz_offset)
+    hour = int(server_ts.hour)
+
+    london = london_start <= hour < london_end
+    if newyork_end > 24:
+        newyork = hour >= newyork_start or hour < (newyork_end - 24)
+    else:
+        newyork = newyork_start <= hour < newyork_end
+
+    if session == "London":
+        return london
+    if session == "NewYork":
+        return newyork
+    return london or newyork
+def prepare_ema_channel_signals(
+    df: pd.DataFrame,
+    ema_fast: int = 8,
+    ema_mid: int = 13,
+    ema_slow: int = 21,
+    ema_slower: int = 34,
+    ema_slowest: int = 55,
+) -> pd.DataFrame:
+    """Prepare EMA channel continuation signals on OHLC dataframe."""
     df = df.copy().reset_index(drop=True)
     df["ema_fast"] = df["close"].ewm(span=ema_fast, adjust=False).mean()
+    df["ema_mid"] = df["close"].ewm(span=ema_mid, adjust=False).mean()
     df["ema_slow"] = df["close"].ewm(span=ema_slow, adjust=False).mean()
-    df["rsi"] = calculate_rsi(df["close"], rsi_period)
+    df["ema_slower"] = df["close"].ewm(span=ema_slower, adjust=False).mean()
+    df["ema_slowest"] = df["close"].ewm(span=ema_slowest, adjust=False).mean()
 
-    df["long_signal"] = (
-        (df["ema_fast"] > df["ema_slow"]) &
-        (df["ema_fast"].shift(1) <= df["ema_slow"].shift(1)) &
-        (df["rsi"] > 50) &
-        (df["rsi"] < 70)
-    )
-    df["short_signal"] = (
-        (df["ema_fast"] < df["ema_slow"]) &
-        (df["ema_fast"].shift(1) >= df["ema_slow"].shift(1)) &
-        (df["rsi"] > 30) &
-        (df["rsi"] < 50)
-    )
+    long_signal = [False] * len(df)
+    short_signal = [False] * len(df)
+    trend = "NONE"
+    entry_state = "IDLE"
+
+    for idx in range(1, len(df)):
+        e1 = float(df.loc[idx, "ema_fast"])
+        e2 = float(df.loc[idx, "ema_mid"])
+        e3 = float(df.loc[idx, "ema_slow"])
+        e4 = float(df.loc[idx, "ema_slower"])
+        e5 = float(df.loc[idx, "ema_slowest"])
+
+        ch_top = max(e1, e2, e3, e4, e5)
+        ch_bot = min(e1, e2, e3, e4, e5)
+        close1 = float(df.loc[idx, "close"])
+        high1 = float(df.loc[idx, "high"])
+        low1 = float(df.loc[idx, "low"])
+
+        bull_stack = e1 > e2 > e3 > e4 > e5
+        bear_stack = e1 < e2 < e3 < e4 < e5
+
+        if entry_state == "IDLE":
+            if bull_stack and close1 > ch_top:
+                trend = "UP"
+                entry_state = "WAIT_RETEST"
+            elif bear_stack and close1 < ch_bot:
+                trend = "DOWN"
+                entry_state = "WAIT_RETEST"
+            continue
+
+        if entry_state == "WAIT_RETEST":
+            retest_up = trend == "UP" and low1 <= ch_top and close1 >= ch_bot
+            retest_down = trend == "DOWN" and high1 >= ch_bot and close1 <= ch_top
+            if retest_up or retest_down:
+                entry_state = "WAIT_CONFIRM"
+
+            if (trend == "UP" and bear_stack) or (trend == "DOWN" and bull_stack):
+                trend = "NONE"
+                entry_state = "IDLE"
+            continue
+
+        confirm_up = trend == "UP" and close1 > ch_top
+        confirm_down = trend == "DOWN" and close1 < ch_bot
+        if confirm_up:
+            long_signal[idx] = True
+        elif confirm_down:
+            short_signal[idx] = True
+
+        trend = "NONE"
+        entry_state = "IDLE"
+
+    df["long_signal"] = long_signal
+    df["short_signal"] = short_signal
     return df
 
 
-def emarsi_backtest(
+def ema_channel_backtest(
     df: pd.DataFrame,
-    ema_fast: int = 9,
+    ema_fast: int = 8,
+    ema_mid: int = 13,
     ema_slow: int = 21,
-    rsi_period: int = 14,
+    ema_slower: int = 34,
+    ema_slowest: int = 55,
+    session: str = "Both",
+    london_start: int = 11,
+    london_end: int = 20,
+    newyork_start: int = 16,
+    newyork_end: int = 25,
+    session_tz_offset: int = 3,
+    modeled_spread_pips: float = 0.0,
+    max_spread_pips: float = 3.0,
     stop_pips: float = 0.7,
     initial_capital: float = 10000.0,
     pct_per_trade: float = 0.01,
 ) -> Dict[str, Any]:
     if stop_pips <= 0:
         raise ValueError("stop_pips must be > 0 and represents an absolute price distance (e.g. 0.7)")
+    if modeled_spread_pips < 0:
+        raise ValueError("modeled_spread_pips must be >= 0")
 
-    df = prepare_ema_rsi_signals(df, ema_fast=ema_fast, ema_slow=ema_slow, rsi_period=rsi_period)
+    df = prepare_ema_channel_signals(
+        df,
+        ema_fast=ema_fast,
+        ema_mid=ema_mid,
+        ema_slow=ema_slow,
+        ema_slower=ema_slower,
+        ema_slowest=ema_slowest,
+    )
 
     cash = initial_capital
     position = 0.0
@@ -92,23 +186,21 @@ def emarsi_backtest(
                 position = 0.0
                 continue
 
-        if direction != 0:
-            if direction == 1 and df.loc[i, "short_signal"]:
-                exit_price = df.loc[i + 1, "open"]
-                cash += position * exit_price
-                trades.append({"type": "sell", "index": i + 1, "price": exit_price, "qty": position, "reason": "opposite_signal"})
-                direction = 0
-                position = 0.0
+        if direction == 0:
+            session_allowed = in_session_window(
+                df.loc[i, "close_time"],
+                session=session,
+                london_start=london_start,
+                london_end=london_end,
+                newyork_start=newyork_start,
+                newyork_end=newyork_end,
+                session_tz_offset=session_tz_offset,
+            )
+            if not session_allowed:
                 continue
-            if direction == -1 and df.loc[i, "long_signal"]:
-                exit_price = df.loc[i + 1, "open"]
-                cash -= position * exit_price
-                trades.append({"type": "cover", "index": i + 1, "price": exit_price, "qty": position, "reason": "opposite_signal"})
-                direction = 0
-                position = 0.0
+            if max_spread_pips > 0 and modeled_spread_pips > max_spread_pips:
                 continue
 
-        if direction == 0:
             if df.loc[i, "long_signal"]:
                 entry_price = df.loc[i + 1, "open"]
                 allocation = cash * pct_per_trade

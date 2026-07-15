@@ -54,11 +54,14 @@ class TradeHistoryExporter:
 class MetricsSnapshot:
     """Store and export a snapshot of backtest metrics."""
     
-    def __init__(self, symbol: str, timeframe: str, ema_fast: int, ema_slow: int):
+    def __init__(self, symbol: str, timeframe: str, ema_fast: int, ema_mid: int, ema_slow: int, ema_slower: int, ema_slowest: int):
         self.symbol = symbol
         self.timeframe = timeframe
         self.ema_fast = ema_fast
+        self.ema_mid = ema_mid
         self.ema_slow = ema_slow
+        self.ema_slower = ema_slower
+        self.ema_slowest = ema_slowest
         self.timestamp = datetime.now().isoformat()
         self.metrics: Dict[str, Any] = {}
     
@@ -73,7 +76,10 @@ class MetricsSnapshot:
             "symbol": self.symbol,
             "timeframe": self.timeframe,
             "ema_fast": self.ema_fast,
+            "ema_mid": self.ema_mid,
             "ema_slow": self.ema_slow,
+            "ema_slower": self.ema_slower,
+            "ema_slowest": self.ema_slowest,
             **self.metrics,
         }
     
@@ -89,7 +95,10 @@ class HTMLReportGenerator:
     def generate_report(
         symbol: str,
         ema_fast: int,
+        ema_mid: int,
         ema_slow: int,
+        ema_slower: int,
+        ema_slowest: int,
         timeframe: str,
         metrics: Dict[str, Any],
         trades: List[Dict[str, Any]] | None = None,
@@ -100,7 +109,10 @@ class HTMLReportGenerator:
         Args:
             symbol: Trading pair
             ema_fast: Fast EMA period
+            ema_mid: Second EMA period
             ema_slow: Slow EMA period
+            ema_slower: Fourth EMA period
+            ema_slowest: Slowest EMA period
             timeframe: Candle interval
             metrics: Backtest metrics dict
             trades: List of trades
@@ -111,12 +123,12 @@ class HTMLReportGenerator:
         """
         if output_file is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"report_{symbol}_{ema_fast}_{ema_slow}_{timestamp}.html"
+            output_file = f"report_{symbol}_{ema_fast}_{ema_mid}_{ema_slow}_{ema_slower}_{ema_slowest}_{timestamp}.html"
         
         trades = trades or []
         
         # Build HTML
-        html = _build_html_report(symbol, ema_fast, ema_slow, timeframe, metrics, trades)
+        html = _build_html_report(symbol, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, timeframe, metrics, trades)
         
         output_path = Path(output_file)
         with open(output_path, "w") as f:
@@ -129,7 +141,10 @@ class HTMLReportGenerator:
 def _build_html_report(
     symbol: str,
     ema_fast: int,
+    ema_mid: int,
     ema_slow: int,
+    ema_slower: int,
+    ema_slowest: int,
     timeframe: str,
     metrics: Dict[str, Any],
     trades: List[Dict[str, Any]],
@@ -165,7 +180,7 @@ def _build_html_report(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Backtest Report - {symbol} {ema_fast}/{ema_slow} {timeframe}</title>
+    <title>Backtest Report - {symbol} {ema_fast}/{ema_mid}/{ema_slow}/{ema_slower}/{ema_slowest} {timeframe}</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -280,7 +295,7 @@ def _build_html_report(
         <div class="header">
             <div class="header-info">
                 <div class="header-item">
-                    <strong>Strategy:</strong> EMA{ema_fast}/{ema_slow} + RSI14
+                    <strong>Strategy:</strong> EMA channel continuation ({ema_fast}/{ema_mid}/{ema_slow}/{ema_slower}/{ema_slowest})
                 </div>
                 <div class="header-item">
                     <strong>Timeframe:</strong> {timeframe}

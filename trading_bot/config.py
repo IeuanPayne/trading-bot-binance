@@ -42,6 +42,22 @@ MAX_DRAWDOWN_PCT = _as_float(os.getenv("MAX_DRAWDOWN_PCT"), default=0.0)
 MAX_CONSECUTIVE_LOSSES = _as_int(os.getenv("MAX_CONSECUTIVE_LOSSES"), default=0)
 MAX_TRADES_PER_DAY = _as_int(os.getenv("MAX_TRADES_PER_DAY"), default=0)
 
+# Strategy defaults
+EMA1_LEN = _as_int(os.getenv("EMA1_LEN"), default=8)
+EMA2_LEN = _as_int(os.getenv("EMA2_LEN"), default=13)
+EMA3_LEN = _as_int(os.getenv("EMA3_LEN"), default=21)
+EMA4_LEN = _as_int(os.getenv("EMA4_LEN"), default=34)
+EMA5_LEN = _as_int(os.getenv("EMA5_LEN"), default=55)
+SESSION = os.getenv("SESSION", "Both")
+LONDON_START = _as_int(os.getenv("LONDON_START"), default=11)
+LONDON_END = _as_int(os.getenv("LONDON_END"), default=20)
+NEWYORK_START = _as_int(os.getenv("NEWYORK_START"), default=16)
+NEWYORK_END = _as_int(os.getenv("NEWYORK_END"), default=25)
+SESSION_TZ_OFFSET = _as_int(os.getenv("SESSION_TZ_OFFSET"), default=3)
+MAX_SPREAD_PIPS = _as_float(os.getenv("MAX_SPREAD_PIPS"), default=3.0)
+MODELED_SPREAD_PIPS = _as_float(os.getenv("MODELED_SPREAD_PIPS"), default=0.0)
+PIP_SIZE = _as_float(os.getenv("PIP_SIZE"), default=0.10)
+
 # Alerting settings
 ALERTS_ENABLED = _as_bool(os.getenv("ALERTS_ENABLED", "False"), default=False)
 ALERT_SMS_PROVIDER = os.getenv("ALERT_SMS_PROVIDER", "twilio")
@@ -89,6 +105,14 @@ def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None
         raise ValueError("MAX_CONSECUTIVE_LOSSES must be >= 0")
     if MAX_TRADES_PER_DAY < 0:
         raise ValueError("MAX_TRADES_PER_DAY must be >= 0")
+    if SESSION not in ("London", "NewYork", "Both", "Off"):
+        raise ValueError("SESSION must be one of: London, NewYork, Both, Off")
+    if MAX_SPREAD_PIPS < 0:
+        raise ValueError("MAX_SPREAD_PIPS must be >= 0")
+    if MODELED_SPREAD_PIPS < 0:
+        raise ValueError("MODELED_SPREAD_PIPS must be >= 0")
+    if PIP_SIZE <= 0:
+        raise ValueError("PIP_SIZE must be > 0")
 
     if mode == "paper" and not BINANCE_TESTNET and not ALLOW_LIVE_TRADING:
         raise ValueError(

@@ -124,6 +124,14 @@ class MT5Connector:
             return 0.0
         return float(tick.ask if side.upper() == "BUY" else tick.bid)
 
+    def get_spread_pips(self, symbol: str, pip_size: float = 0.10) -> float:
+        if pip_size <= 0:
+            return 0.0
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            return 0.0
+        return float(tick.ask - tick.bid) / pip_size
+
     def get_net_position(self, symbol: str) -> Optional[MT5Position]:
         positions = mt5.positions_get(symbol=symbol)
         if not positions:

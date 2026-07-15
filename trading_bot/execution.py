@@ -4,22 +4,25 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from .binance_connector import BinanceConnector
-from .backtest import emarsi_backtest, prepare_ema_rsi_signals
+from .backtest import ema_channel_backtest, in_session_window, prepare_ema_channel_signals
 from .alerts import send_alert
 from .state_store import TradingStateStore
 
-# Strategy contract: Gold EMA Trend + RSI Filter (single-layer logic)
-# Long: EMA9/EMA21 bullish crossover with RSI14 in (50, 70).
-# Short: EMA9/EMA21 bearish crossover with RSI14 in (30, 50).
+# Strategy contract: EMA channel continuation with first-retest confirmation.
+# Long: stacked EMAs, breakout above the channel, retest into the channel,
+# then a confirming close back above the channel top.
+# Short: inverse of the above.
 # Spot accounts cannot open native shorts, so paper mode models short lifecycle
-# synthetically (entry/stop/tp/opposite-signal close) in persisted state.
+# synthetically (entry/stop/tp) in persisted state.
 # Risk exits: stop_pips is absolute price distance (default 0.7), with 1:1 TP.
 from .config import (
     BINANCE_API_KEY,
     BINANCE_API_SECRET,
     BINANCE_TESTNET,
     ALLOW_LIVE_TRADING,
+    MAX_SPREAD_PIPS,
     MAX_PCT_PER_TRADE,
+    MODELED_SPREAD_PIPS,
     MAX_DAILY_LOSS_USDT,
     MAX_DRAWDOWN_PCT,
     MAX_CONSECUTIVE_LOSSES,
@@ -48,13 +51,34 @@ def calculate_order_quantity(conn: BinanceConnector, symbol: str, allocation_usd
     return rounded
 
 
+def _prepare_strategy_signals(df, fast: int, slow: int, ema2: int, ema4: int, ema5: int):
+    return prepare_ema_channel_signals(
+        df,
+        ema_fast=fast,
+        ema_mid=ema2,
+        ema_slow=slow,
+        ema_slower=ema4,
+        ema_slowest=ema5,
+    )
+
+
 def run_paper_trade(
     symbol: str,
     interval: str = "15m",
     limit: int = 500,
-    fast: int = 9,
+    fast: int = 8,
     slow: int = 21,
-    rsi_period: int = 14,
+    ema2: int = 13,
+    ema4: int = 34,
+    ema5: int = 55,
+    session: str = "Both",
+    london_start: int = 11,
+    london_end: int = 20,
+    newyork_start: int = 16,
+    newyork_end: int = 25,
+    session_tz_offset: int = 3,
+    max_spread_pips: float = MAX_SPREAD_PIPS,
+    modeled_spread_pips: float = MODELED_SPREAD_PIPS,
     order_pct: float = MAX_PCT_PER_TRADE,
     stop_pips: float = 0.7,
     disable_oco: bool = False,
@@ -93,12 +117,21 @@ def run_paper_trade(
         logger.error("No candle data available for {}", symbol)
         return
 
-    signals = prepare_ema_rsi_signals(df, ema_fast=fast, ema_slow=slow, rsi_period=rsi_period)
+    signals = _prepare_strategy_signals(df, fast, slow, ema2, ema4, ema5)
     latest = signals.iloc[-1]
     long_signal = bool(latest["long_signal"])
     short_signal = bool(latest["short_signal"])
     latest_close_time = str(latest.get("close_time"))
     signal_id = f"{latest_close_time}:{int(long_signal)}:{int(short_signal)}"
+    session_allowed = in_session_window(
+        latest.get("close_time"),
+        session=session,
+        london_start=london_start,
+        london_end=london_end,
+        newyork_start=newyork_start,
+        newyork_end=newyork_end,
+        session_tz_offset=session_tz_offset,
+    )
 
     base_asset, quote_asset = _symbol_assets(symbol)
     quote_balance = connector.get_asset_balance(quote_asset)
@@ -111,7 +144,7 @@ def run_paper_trade(
 
     active_position = state_store.get_position(symbol)
     if active_position and active_position.get("side") == "SHORT":
-        close_reason, close_price = _evaluate_short_exit(active_position, latest, long_signal)
+        close_reason, close_price = _evaluate_short_exit(active_position, latest)
         if close_reason is not None and close_price is not None:
             logger.info("Closing synthetic short for {} due to {} at price={}", symbol, close_reason, close_price)
             _record_exit_risk_metrics(state_store, symbol, close_price)
@@ -122,6 +155,12 @@ def run_paper_trade(
                 {"action": "cover", "reason": close_reason, "price": close_price},
             )
             return
+        logger.info("Synthetic short already open for {}; no new entry.", symbol)
+        return
+
+    if active_position and active_position.get("side") == "LONG":
+        logger.info("Long position already open for {}; no new entry.", symbol)
+        return
 
     current_equity = _current_equity(quote_free, base_free, _safe_float(latest["close"]))
     risk_state = _load_risk_state(state_store, current_equity)
@@ -143,6 +182,21 @@ def run_paper_trade(
 
     if state_store.is_signal_processed(symbol, signal_id):
         logger.info("Signal already processed for {} at {}. Skipping duplicate execution.", symbol, latest_close_time)
+        return
+
+    if (long_signal or short_signal) and not session_allowed:
+        logger.info("Signal for {} ignored because it is outside the configured session window.", symbol)
+        state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "out_of_session"})
+        return
+
+    if (long_signal or short_signal) and max_spread_pips > 0 and modeled_spread_pips > max_spread_pips:
+        logger.info(
+            "Signal for {} ignored because modeled spread is too wide: {} > {} pips.",
+            symbol,
+            modeled_spread_pips,
+            max_spread_pips,
+        )
+        state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "spread_too_wide"})
         return
 
     if long_signal:
@@ -293,26 +347,7 @@ def run_paper_trade(
                 take_profit,
             )
             return
-
-        is_valid, reason = connector.validate_market_order(symbol, base_free, latest["close"])
-        if not is_valid:
-            logger.error("Pre-trade validation failed for {} SELL qty={}: {}", symbol, base_free, reason)
-            return
-
-        logger.info("Short signal detected, closing existing long position for {}", base_asset)
-        market_sell_id = _build_client_order_id(symbol, latest_close_time, "sell")
-        order = _submit_with_retry(
-            connector.create_market_order,
-            symbol=symbol,
-            side="SELL",
-            quantity=base_free,
-            client_order_id=market_sell_id,
-            action="market sell",
-        )
-        logger.info("Market sell response: {}", order)
-        _record_exit_risk_metrics(state_store, symbol, _safe_float(latest["close"]))
-        state_store.clear_position(symbol)
-        state_store.mark_signal_processed(symbol, signal_id, {"action": "sell", "qty": base_free})
+        logger.info("Spot long position detected for {}; friend-style strategy does not flip on opposite signal.", base_asset)
         return
 
     logger.info("No actionable signal in the latest candle for {}", symbol)
@@ -415,7 +450,7 @@ def _record_exit_risk_metrics(state_store: TradingStateStore, symbol: str, exit_
     state_store.set_runtime_state("risk_state", risk_state)
 
 
-def _evaluate_short_exit(position: dict, latest, long_signal: bool) -> tuple[str | None, float | None]:
+def _evaluate_short_exit(position: dict, latest) -> tuple[str | None, float | None]:
     """Evaluate synthetic short exits against the latest closed candle."""
     stop_price = _safe_float(position.get("stop_price", 0.0))
     take_profit = _safe_float(position.get("take_profit", 0.0))
@@ -427,8 +462,6 @@ def _evaluate_short_exit(position: dict, latest, long_signal: bool) -> tuple[str
         return "tp/sl", stop_price
     if take_profit > 0 and low <= take_profit:
         return "tp/sl", take_profit
-    if long_signal and close > 0:
-        return "opposite_signal", close
     return None, None
 
 
@@ -436,9 +469,19 @@ def run_paper_backtest(
     symbol: str,
     interval: str = "15m",
     limit: int = 500,
-    fast: int = 9,
+    fast: int = 8,
     slow: int = 21,
-    rsi_period: int = 14,
+    ema2: int = 13,
+    ema4: int = 34,
+    ema5: int = 55,
+    session: str = "Both",
+    london_start: int = 11,
+    london_end: int = 20,
+    newyork_start: int = 16,
+    newyork_end: int = 25,
+    session_tz_offset: int = 3,
+    modeled_spread_pips: float = MODELED_SPREAD_PIPS,
+    max_spread_pips: float = MAX_SPREAD_PIPS,
 ):
     connector = BinanceConnector()
     df = connector.fetch_klines(symbol, interval, limit)
@@ -446,11 +489,21 @@ def run_paper_backtest(
         logger.error("No data fetched for {}", symbol)
         return
 
-    results = emarsi_backtest(
+    results = ema_channel_backtest(
         df,
         ema_fast=fast,
+        ema_mid=ema2,
         ema_slow=slow,
-        rsi_period=rsi_period,
+        ema_slower=ema4,
+        ema_slowest=ema5,
+        session=session,
+        london_start=london_start,
+        london_end=london_end,
+        newyork_start=newyork_start,
+        newyork_end=newyork_end,
+        session_tz_offset=session_tz_offset,
+        modeled_spread_pips=modeled_spread_pips,
+        max_spread_pips=max_spread_pips,
         initial_capital=10000.0,
         pct_per_trade=MAX_PCT_PER_TRADE,
     )

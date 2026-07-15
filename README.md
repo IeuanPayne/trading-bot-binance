@@ -1,12 +1,12 @@
 # trading-bot-binance
 
-A Python-based automated trading bot for Binance with backtesting and paper trading capabilities. Implements an **EMA9/EMA21 Trend + RSI14 Filter** strategy with position sizing, risk management, and OCO (One-Cancels-Other) orders.
+A Python-based automated trading bot for Binance and MT5 with backtesting and paper trading capabilities. It now implements an **EMA channel continuation** strategy: stacked EMAs, breakout beyond the EMA channel, first retest into the channel, then confirmation in the trend direction.
 
 ## Features
 
 - **Backtesting Engine**: Test strategies on historical OHLC data with configurable parameters.
 - **Paper Trading**: Run live orders on Binance testnet without risking real capital.
-- **EMA + RSI Strategy**: 9/21 EMA crossover with RSI14 filter for trend confirmation.
+- **EMA Channel Continuation Strategy**: Uses 8/13/21/34/55 EMAs and a breakout, retest, confirm entry pattern.
 - **Risk Management**: Position sizing based on account equity and risk per trade.
 - **OCO Orders**: Automatic stop-loss and take-profit orders for safe exits.
 - **Testnet Support**: Full integration with Binance testnet for safe development and testing.
@@ -45,6 +45,20 @@ MAX_DAILY_LOSS_USDT=0
 MAX_DRAWDOWN_PCT=0
 MAX_CONSECUTIVE_LOSSES=0
 MAX_TRADES_PER_DAY=0
+EMA1_LEN=8
+EMA2_LEN=13
+EMA3_LEN=21
+EMA4_LEN=34
+EMA5_LEN=55
+SESSION=Both
+LONDON_START=11
+LONDON_END=20
+NEWYORK_START=16
+NEWYORK_END=25
+SESSION_TZ_OFFSET=3
+MAX_SPREAD_PIPS=3.0
+MODELED_SPREAD_PIPS=0.0
+PIP_SIZE=0.10
 ALERTS_ENABLED=False
 ALERT_SMS_PROVIDER=twilio
 ALERT_PHONE_TO=
@@ -74,7 +88,7 @@ make backtest
 # or with custom parameters:
 PYTHONPATH=$(pwd) .venv/bin/python3 -m trading_bot.bot --mode backtest \
   --symbol BTCUSDT --interval 15m --limit 500 \
-  --fast 9 --slow 21 --rsi-period 14
+  --ema1-len 8 --ema2-len 13 --ema3-len 21 --ema4-len 34 --ema5-len 55
 ```
 
 Expected output includes PnL, final equity, number of trades, and metrics.
@@ -86,7 +100,7 @@ make paper
 # or:
 PYTHONPATH=$(pwd) .venv/bin/python3 -m trading_bot.bot --mode paper \
   --symbol BTCUSDT --interval 15m --limit 500 \
-  --order-pct 2 --stop-pips 0.7
+  --order-pct 2 --stop-pips 0.7 --modeled-spread-pips 0.5
 ```
 
 ### 6. Run MT5 Trading Mode
@@ -95,7 +109,9 @@ Configure MT5 credentials in `.env` (see table below), then run:
 
 ```bash
 PYTHONPATH=$(pwd) .venv/bin/python3 -m trading_bot.bot --mode mt5 \
-  --interval 15m --limit 500 --fast 9 --slow 21 --rsi-period 14 \
+  --interval 15m --limit 500 \
+  --ema1-len 8 --ema2-len 13 --ema3-len 21 --ema4-len 34 --ema5-len 55 \
+  --session Both --max-spread-pips 3 --pip-size 0.10 \
   --order-pct 0.01 --stop-pips 0.7
 ```
 
@@ -189,6 +205,20 @@ trading-bot-binance/
 | `MAX_DRAWDOWN_PCT` | `0` | Max drawdown percentage before blocking new entries (0 disables) |
 | `MAX_CONSECUTIVE_LOSSES` | `0` | Max consecutive losing exits before blocking new entries (0 disables) |
 | `MAX_TRADES_PER_DAY` | `0` | Max entries per UTC day before blocking new entries (0 disables) |
+| `EMA1_LEN` | `8` | Default fastest EMA period |
+| `EMA2_LEN` | `13` | Default second EMA period |
+| `EMA3_LEN` | `21` | Default middle EMA period |
+| `EMA4_LEN` | `34` | Default fourth EMA period |
+| `EMA5_LEN` | `55` | Default slowest EMA period |
+| `SESSION` | `Both` | Default session gate: `London`, `NewYork`, `Both`, or `Off` |
+| `LONDON_START` | `11` | Default London session start hour in server time |
+| `LONDON_END` | `20` | Default London session end hour in server time |
+| `NEWYORK_START` | `16` | Default New York session start hour in server time |
+| `NEWYORK_END` | `25` | Default New York session end hour in server time |
+| `SESSION_TZ_OFFSET` | `3` | Default server-time offset from UTC |
+| `MAX_SPREAD_PIPS` | `3.0` | Default spread threshold before blocking entries |
+| `MODELED_SPREAD_PIPS` | `0.0` | Default modeled spread used by backtest and paper mode |
+| `PIP_SIZE` | `0.10` | Pip size used for MT5 spread conversion |
 | `ALERTS_ENABLED` | `False` | Enable outbound alerts |
 | `ALERT_SMS_PROVIDER` | `twilio` | Alert provider (currently `twilio`) |
 | `ALERT_PHONE_TO` | `+15551234567` | Destination phone number for SMS alerts |
@@ -216,9 +246,17 @@ python -m trading_bot.bot --mode backtest [options]
 | `--symbol` | `BTCUSDT` | Trading pair (e.g., `ETHUSDT`, `BNBUSDT`) |
 | `--interval` | `15m` | Candle interval (1m, 5m, 15m, 1h, 4h, 1d) |
 | `--limit` | `500` | Number of candles to fetch |
-| `--fast` | `9` | Fast EMA period |
-| `--slow` | `21` | Slow EMA period |
-| `--rsi-period` | `14` | RSI period |
+| `--ema1-len` | `8` | Fastest EMA period |
+| `--ema2-len` | `13` | Second EMA period |
+| `--ema3-len` | `21` | Middle EMA period |
+| `--ema4-len` | `34` | Fourth EMA period |
+| `--ema5-len` | `55` | Slowest EMA period |
+| `--session` | `Both` | Session filter: `London`, `NewYork`, `Both`, or `Off` |
+| `--london-start` | `11` | London session start hour in server time |
+| `--london-end` | `20` | London session end hour in server time |
+| `--newyork-start` | `16` | New York session start hour in server time |
+| `--newyork-end` | `25` | New York session end hour in server time, supports wrap past midnight |
+| `--session-tz-offset` | `3` | Server time offset from UTC used by the session gate |
 
 #### Paper Trading Mode
 
@@ -233,29 +271,39 @@ All backtest arguments, plus:
 | `--order-pct` | `2` | Percentage of capital per order (%) |
 | `--stop-pips` | `0.7` | Stop-loss/take-profit distance in absolute price units (70 pips) |
 | `--disable-oco` | `False` | Disable OCO orders (if set, only market orders) |
+| `--max-spread-pips` | `3.0` | Spread gate in pips before entry is blocked |
+| `--modeled-spread-pips` | `0.0` | Simulated spread used by backtest and paper mode |
+| `--pip-size` | `0.10` | MT5 pip size used to convert live spread into pips |
 
-## Strategy: EMA9/EMA21 + RSI14 Filter
+## Strategy: EMA Channel Continuation
+
+Default EMA channel: `8 / 13 / 21 / 34 / 55`
 
 ### Entry Conditions
 
-- **Uptrend**: EMA9 > EMA21 **AND** RSI14 ≥ 50 → **BUY signal**
-- **Downtrend**: EMA9 < EMA21 **AND** RSI14 ≤ 50 → **SELL signal**
+- **Trend qualification**: all five EMAs must be stacked in order.
+- **Breakout**: price must close above the EMA channel for longs, or below it for shorts.
+- **Retest**: the first pullback candle must revisit the EMA channel without invalidating the trend.
+- **Confirmation**: the next candle must close back outside the channel in the trend direction.
+- **Session gate**: entries are allowed only during the configured London and/or New York session window.
+- **Spread gate**: in MT5 mode, entries are blocked when live spread exceeds the max; in backtest and paper mode, the modeled spread must also stay below the same threshold.
+- **Single active position**: while a trade is open, the bot ignores new signals instead of flipping on an opposite signal.
 
 ### Exit Conditions (OCO Order)
 
-- **Stop-Loss**: Fixed distance (default 0.7%) below entry price
-- **Take-Profit**: 2× stop-loss distance above entry price (e.g., 1.4% for 0.7% stop)
+- **Stop-Loss**: Fixed absolute distance from entry price (default `0.7` price units)
+- **Take-Profit**: Same fixed absolute distance in the profit direction (1:1 reward/risk)
 
 ### Position Sizing
 
 Calculated as:
 ```
-qty = (account_equity * risk_pct) / (entry_price * stop_distance)
+qty = (account_equity * order_pct) / entry_price
 ```
 
-Example: $10,000 account, 2% risk, $50,000 BTC, 0.7% stop
+Example: $10,000 account, 2% risk, $50,000 BTC, `0.7` stop distance
 ```
-qty ≈ (10,000 * 0.02) / (50,000 * 0.007) ≈ 0.057 BTC
+qty ≈ (10,000 * 0.02) / 50,000 ≈ 0.004 BTC
 ```
 
 ## Usage Examples
@@ -288,7 +336,7 @@ PYTHONPATH=$(pwd) .venv/bin/python3 -m trading_bot.bot --mode paper \
 
 ```bash
 PYTHONPATH=$(pwd) .venv/bin/python3 -m trading_bot.bot --mode backtest \
-  --symbol BTCUSDT --fast 12 --slow 26 --rsi-period 14
+  --symbol BTCUSDT --ema1-len 10 --ema2-len 14 --ema3-len 24 --ema4-len 36 --ema5-len 60
 ```
 
 ## Testing
@@ -440,7 +488,7 @@ Check that:
 
 If paper trading runs but no orders are placed:
 - Check `trading_bot.log` for strategy signals.
-- Verify RSI and EMA conditions (may require different candle history).
+- Verify EMA channel alignment, session window, and spread gate settings.
 - Ensure `--order-pct` and `--stop-pips` are reasonable (not too small/large).
 
 ## License

@@ -6,8 +6,24 @@ from loguru import logger
 from typing import Optional
 
 from .binance_connector import BinanceConnector
-from .backtest import emarsi_backtest
-from .config import INITIAL_CAPITAL, MAX_PCT_PER_TRADE
+from .backtest import ema_channel_backtest
+from .config import (
+    EMA1_LEN,
+    EMA2_LEN,
+    EMA3_LEN,
+    EMA4_LEN,
+    EMA5_LEN,
+    INITIAL_CAPITAL,
+    LONDON_END,
+    LONDON_START,
+    MAX_PCT_PER_TRADE,
+    MAX_SPREAD_PIPS,
+    MODELED_SPREAD_PIPS,
+    NEWYORK_END,
+    NEWYORK_START,
+    SESSION,
+    SESSION_TZ_OFFSET,
+)
 
 
 def run_grid_backtest(
@@ -15,17 +31,28 @@ def run_grid_backtest(
     ema_pairs: Optional[list] = None,
     timeframes: Optional[list] = None,
     limit: int = 1000,
-    rsi_period: int = 14,
+    ema1_len: int = EMA1_LEN,
+    ema2_len: int = EMA2_LEN,
+    ema3_len: int = EMA3_LEN,
+    ema4_len: int = EMA4_LEN,
+    ema5_len: int = EMA5_LEN,
+    session: str = SESSION,
+    london_start: int = LONDON_START,
+    london_end: int = LONDON_END,
+    newyork_start: int = NEWYORK_START,
+    newyork_end: int = NEWYORK_END,
+    session_tz_offset: int = SESSION_TZ_OFFSET,
+    modeled_spread_pips: float = MODELED_SPREAD_PIPS,
+    max_spread_pips: float = MAX_SPREAD_PIPS,
     output_file: Optional[str] = None,
 ):
     """Run backtest for multiple EMA and timeframe combinations.
     
     Args:
         symbol: Trading pair (e.g., 'BTCUSDT')
-        ema_pairs: List of (fast, slow) tuples. Default: [(5,13), (9,21), (12,26), (20,50)]
+        ema_pairs: List of (ema1, ema3) tuples. Default: [(5,13), (9,21), (12,26), (20,50)]
         timeframes: List of candle intervals. Default: ['5m', '15m', '1h', '4h']
         limit: Number of candles per timeframe
-        rsi_period: RSI period
         output_file: CSV file to write results. Default: 'backtest_grid_<timestamp>.csv'
     
     Returns:
@@ -57,11 +84,21 @@ def run_grid_backtest(
                     continue
                 
                 # Run backtest
-                backtest_result = emarsi_backtest(
+                backtest_result = ema_channel_backtest(
                     df,
                     ema_fast=fast,
+                    ema_mid=ema2_len,
                     ema_slow=slow,
-                    rsi_period=rsi_period,
+                    ema_slower=ema4_len,
+                    ema_slowest=ema5_len,
+                    session=session,
+                    london_start=london_start,
+                    london_end=london_end,
+                    newyork_start=newyork_start,
+                    newyork_end=newyork_end,
+                    session_tz_offset=session_tz_offset,
+                    modeled_spread_pips=modeled_spread_pips,
+                    max_spread_pips=max_spread_pips,
                     initial_capital=INITIAL_CAPITAL,
                     pct_per_trade=MAX_PCT_PER_TRADE,
                 )
