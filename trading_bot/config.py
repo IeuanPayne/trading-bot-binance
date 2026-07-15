@@ -64,6 +64,7 @@ MT5_TP_PIPS = _as_float(os.getenv("MT5_TP_PIPS"), default=70.0)
 MT5_SLIPPAGE = _as_int(os.getenv("MT5_SLIPPAGE"), default=30)
 MT5_AUTO_MAGIC = _as_bool(os.getenv("MT5_AUTO_MAGIC", "True"), default=True)
 MT5_BASE_MAGIC = _as_int(os.getenv("MT5_BASE_MAGIC"), default=20260629)
+MT5_SIGNAL_DEBUG = _as_bool(os.getenv("MT5_SIGNAL_DEBUG", "False"), default=False)
 
 # Alerting settings
 ALERTS_ENABLED = _as_bool(os.getenv("ALERTS_ENABLED", "False"), default=False)

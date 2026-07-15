@@ -84,7 +84,7 @@ class FakeMT5Connector:
 def test_mt5_trade_marks_signal_and_skips_duplicate(monkeypatch, tmp_path):
     connector = FakeMT5Connector()
 
-    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, include_state=False):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
@@ -102,7 +102,7 @@ def test_mt5_trade_marks_signal_and_skips_duplicate(monkeypatch, tmp_path):
 def test_mt5_trade_breaker_blocks_entry(monkeypatch, tmp_path):
     connector = FakeMT5Connector()
 
-    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, include_state=False):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)
@@ -141,7 +141,7 @@ def test_mt5_trade_does_not_flip_existing_position(monkeypatch, tmp_path):
     connector = FakeMT5Connector()
     connector.position = _FakePosition(ticket=42, side="BUY", volume=0.01, price_open=100.0)
 
-    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, include_state=False):
         signals = df.copy()
         signals["long_signal"] = [False] * len(df)
         signals["short_signal"] = [False] * (len(df) - 1) + [True]
@@ -163,7 +163,7 @@ def test_mt5_trade_skips_wide_spread(monkeypatch, tmp_path):
     connector = FakeMT5Connector()
     connector.get_spread_pips = lambda symbol, pip_size=0.10: 4.0
 
-    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest):
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, include_state=False):
         signals = df.copy()
         signals["long_signal"] = [False] * (len(df) - 1) + [True]
         signals["short_signal"] = [False] * len(df)

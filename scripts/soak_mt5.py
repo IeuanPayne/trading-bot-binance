@@ -25,6 +25,7 @@ from trading_bot.config import (
     MT5_LOGIN,
     MT5_PASSWORD,
     MT5_RISK_PCT,
+    MT5_SIGNAL_DEBUG,
     MT5_SERVER,
     MT5_SLIPPAGE,
     MT5_SL_PIPS,
@@ -118,6 +119,7 @@ def _run_cycle(args) -> None:
             tp_pips=args.tp_pips,
             stop_pips=args.stop_pips,
             magic=magic,
+            signal_debug=args.signal_debug,
             state_file=args.state_file,
         )
     finally:
@@ -150,6 +152,7 @@ def main() -> None:
     parser.add_argument("--slippage", type=int, default=MT5_SLIPPAGE)
     parser.add_argument("--auto-magic", action=argparse.BooleanOptionalAction, default=MT5_AUTO_MAGIC)
     parser.add_argument("--base-magic", type=int, default=MT5_BASE_MAGIC)
+    parser.add_argument("--signal-debug", action=argparse.BooleanOptionalAction, default=MT5_SIGNAL_DEBUG)
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--state-file", default=MT5_STATE_FILE)
     parser.add_argument("--duration-hours", type=float, default=24.0)

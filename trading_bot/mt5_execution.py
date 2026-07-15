@@ -128,6 +128,7 @@ def run_mt5_trade(
     tp_pips: float | None = None,
     stop_pips: float = 0.7,
     magic: int | None = MT5_BASE_MAGIC,
+    signal_debug: bool = False,
     state_file: str = "mt5_trading_state.db",
 ) -> None:
     """Run one MT5 strategy cycle at candle close."""
@@ -137,7 +138,15 @@ def run_mt5_trade(
         logger.error("No MT5 candle data available for {}", symbol)
         return
 
-    signals = _prepare_strategy_signals(df, fast, slow, ema2, ema4, ema5)
+    signals = prepare_ema_channel_signals(
+        df,
+        ema_fast=fast,
+        ema_mid=ema2,
+        ema_slow=slow,
+        ema_slower=ema4,
+        ema_slowest=ema5,
+        include_state=signal_debug,
+    )
     latest = signals.iloc[-1]
     long_signal = bool(latest["long_signal"])
     short_signal = bool(latest["short_signal"])
@@ -163,6 +172,23 @@ def run_mt5_trade(
         long_signal,
         short_signal,
     )
+    if signal_debug:
+        logger.info(
+            "MT5 signal-debug: entry_state={} trend={} bull_stack={} bear_stack={} breakout_up={} breakout_down={} retest_up={} retest_down={} confirm_up={} confirm_down={} close={} channel_top={} channel_bottom={}",
+            latest.get("entry_state"),
+            latest.get("trend"),
+            bool(latest.get("bull_stack", False)),
+            bool(latest.get("bear_stack", False)),
+            bool(latest.get("breakout_up", False)),
+            bool(latest.get("breakout_down", False)),
+            bool(latest.get("retest_up", False)),
+            bool(latest.get("retest_down", False)),
+            bool(latest.get("confirm_up", False)),
+            bool(latest.get("confirm_down", False)),
+            latest["close"],
+            latest.get("channel_top"),
+            latest.get("channel_bottom"),
+        )
 
     current_equity = connector.get_account_equity()
     risk_state = _load_risk_state(state_store, current_equity)

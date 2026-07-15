@@ -53,6 +53,7 @@ def prepare_ema_channel_signals(
     ema_slow: int = 21,
     ema_slower: int = 34,
     ema_slowest: int = 55,
+    include_state: bool = False,
 ) -> pd.DataFrame:
     """Prepare EMA channel continuation signals on OHLC dataframe."""
     df = df.copy().reset_index(drop=True)
@@ -66,6 +67,20 @@ def prepare_ema_channel_signals(
     short_signal = [False] * len(df)
     trend = "NONE"
     entry_state = "IDLE"
+
+    if include_state:
+        entry_state_col = ["IDLE"] * len(df)
+        trend_col = ["NONE"] * len(df)
+        bull_stack_col = [False] * len(df)
+        bear_stack_col = [False] * len(df)
+        breakout_up_col = [False] * len(df)
+        breakout_down_col = [False] * len(df)
+        retest_up_col = [False] * len(df)
+        retest_down_col = [False] * len(df)
+        confirm_up_col = [False] * len(df)
+        confirm_down_col = [False] * len(df)
+        ch_top_col = [0.0] * len(df)
+        ch_bot_col = [0.0] * len(df)
 
     for idx in range(1, len(df)):
         e1 = float(df.loc[idx, "ema_fast"])
@@ -82,29 +97,49 @@ def prepare_ema_channel_signals(
 
         bull_stack = e1 > e2 > e3 > e4 > e5
         bear_stack = e1 < e2 < e3 < e4 < e5
+        breakout_up = bull_stack and close1 > ch_top
+        breakout_down = bear_stack and close1 < ch_bot
+        retest_up = trend == "UP" and low1 <= ch_top and close1 >= ch_bot
+        retest_down = trend == "DOWN" and high1 >= ch_bot and close1 <= ch_top
+        confirm_up = trend == "UP" and close1 > ch_top
+        confirm_down = trend == "DOWN" and close1 < ch_bot
+
+        if include_state:
+            bull_stack_col[idx] = bull_stack
+            bear_stack_col[idx] = bear_stack
+            breakout_up_col[idx] = breakout_up
+            breakout_down_col[idx] = breakout_down
+            retest_up_col[idx] = retest_up
+            retest_down_col[idx] = retest_down
+            confirm_up_col[idx] = confirm_up
+            confirm_down_col[idx] = confirm_down
+            ch_top_col[idx] = ch_top
+            ch_bot_col[idx] = ch_bot
 
         if entry_state == "IDLE":
-            if bull_stack and close1 > ch_top:
+            if breakout_up:
                 trend = "UP"
                 entry_state = "WAIT_RETEST"
-            elif bear_stack and close1 < ch_bot:
+            elif breakout_down:
                 trend = "DOWN"
                 entry_state = "WAIT_RETEST"
+            if include_state:
+                trend_col[idx] = trend
+                entry_state_col[idx] = entry_state
             continue
 
         if entry_state == "WAIT_RETEST":
-            retest_up = trend == "UP" and low1 <= ch_top and close1 >= ch_bot
-            retest_down = trend == "DOWN" and high1 >= ch_bot and close1 <= ch_top
             if retest_up or retest_down:
                 entry_state = "WAIT_CONFIRM"
 
             if (trend == "UP" and bear_stack) or (trend == "DOWN" and bull_stack):
                 trend = "NONE"
                 entry_state = "IDLE"
+            if include_state:
+                trend_col[idx] = trend
+                entry_state_col[idx] = entry_state
             continue
 
-        confirm_up = trend == "UP" and close1 > ch_top
-        confirm_down = trend == "DOWN" and close1 < ch_bot
         if confirm_up:
             long_signal[idx] = True
         elif confirm_down:
@@ -113,8 +148,27 @@ def prepare_ema_channel_signals(
         trend = "NONE"
         entry_state = "IDLE"
 
+        if include_state:
+            trend_col[idx] = trend
+            entry_state_col[idx] = entry_state
+
     df["long_signal"] = long_signal
     df["short_signal"] = short_signal
+
+    if include_state:
+        df["entry_state"] = entry_state_col
+        df["trend"] = trend_col
+        df["bull_stack"] = bull_stack_col
+        df["bear_stack"] = bear_stack_col
+        df["breakout_up"] = breakout_up_col
+        df["breakout_down"] = breakout_down_col
+        df["retest_up"] = retest_up_col
+        df["retest_down"] = retest_down_col
+        df["confirm_up"] = confirm_up_col
+        df["confirm_down"] = confirm_down_col
+        df["channel_top"] = ch_top_col
+        df["channel_bottom"] = ch_bot_col
+
     return df
 
 
