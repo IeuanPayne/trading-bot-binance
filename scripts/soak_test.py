@@ -11,6 +11,21 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from trading_bot.execution import run_paper_trade
+from trading_bot.config import (
+    EMA1_LEN,
+    EMA2_LEN,
+    EMA3_LEN,
+    EMA4_LEN,
+    EMA5_LEN,
+    LONDON_END,
+    LONDON_START,
+    MAX_SPREAD_PIPS,
+    MODELED_SPREAD_PIPS,
+    NEWYORK_END,
+    NEWYORK_START,
+    SESSION,
+    SESSION_TZ_OFFSET,
+)
 
 
 logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
@@ -39,9 +54,19 @@ def main() -> None:
     parser.add_argument("--symbol", default="BTCUSDT")
     parser.add_argument("--interval", default="15m")
     parser.add_argument("--limit", type=int, default=500)
-    parser.add_argument("--fast", type=int, default=9)
-    parser.add_argument("--slow", type=int, default=21)
-    parser.add_argument("--rsi-period", type=int, default=14)
+    parser.add_argument("--ema1-len", "--fast", dest="fast", type=int, default=EMA1_LEN)
+    parser.add_argument("--ema2-len", dest="ema2", type=int, default=EMA2_LEN)
+    parser.add_argument("--ema3-len", "--slow", dest="slow", type=int, default=EMA3_LEN)
+    parser.add_argument("--ema4-len", dest="ema4", type=int, default=EMA4_LEN)
+    parser.add_argument("--ema5-len", dest="ema5", type=int, default=EMA5_LEN)
+    parser.add_argument("--session", choices=["London", "NewYork", "Both", "Off"], default=SESSION)
+    parser.add_argument("--london-start", type=int, default=LONDON_START)
+    parser.add_argument("--london-end", type=int, default=LONDON_END)
+    parser.add_argument("--newyork-start", type=int, default=NEWYORK_START)
+    parser.add_argument("--newyork-end", type=int, default=NEWYORK_END)
+    parser.add_argument("--session-tz-offset", type=int, default=SESSION_TZ_OFFSET)
+    parser.add_argument("--max-spread-pips", type=float, default=MAX_SPREAD_PIPS)
+    parser.add_argument("--modeled-spread-pips", type=float, default=MODELED_SPREAD_PIPS)
     parser.add_argument("--order-pct", type=float, default=0.01)
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--disable-oco", action="store_true")
@@ -72,8 +97,18 @@ def main() -> None:
             interval=args.interval,
             limit=args.limit,
             fast=args.fast,
+            ema2=args.ema2,
             slow=args.slow,
-            rsi_period=args.rsi_period,
+            ema4=args.ema4,
+            ema5=args.ema5,
+            session=args.session,
+            london_start=args.london_start,
+            london_end=args.london_end,
+            newyork_start=args.newyork_start,
+            newyork_end=args.newyork_end,
+            session_tz_offset=args.session_tz_offset,
+            max_spread_pips=args.max_spread_pips,
+            modeled_spread_pips=args.modeled_spread_pips,
             order_pct=args.order_pct,
             stop_pips=args.stop_pips,
             disable_oco=args.disable_oco,
@@ -101,8 +136,18 @@ def main() -> None:
             interval=args.interval,
             limit=args.limit,
             fast=args.fast,
+            ema2=args.ema2,
             slow=args.slow,
-            rsi_period=args.rsi_period,
+            ema4=args.ema4,
+            ema5=args.ema5,
+            session=args.session,
+            london_start=args.london_start,
+            london_end=args.london_end,
+            newyork_start=args.newyork_start,
+            newyork_end=args.newyork_end,
+            session_tz_offset=args.session_tz_offset,
+            max_spread_pips=args.max_spread_pips,
+            modeled_spread_pips=args.modeled_spread_pips,
             order_pct=args.order_pct,
             stop_pips=args.stop_pips,
             disable_oco=args.disable_oco,
