@@ -208,7 +208,45 @@ def run_mt5_trade(
         if was_tripped:
             send_alert(f"MT5 risk breaker cleared for {symbol}. Trading can resume.", level="INFO")
 
+    tracked_position = state_store.get_position(symbol)
     position = connector.get_net_position(symbol, magic=magic)
+    if position is None and tracked_position:
+        outcome = None
+        outcome_fetcher = getattr(connector, "get_latest_closed_outcome", None)
+        if callable(outcome_fetcher):
+            try:
+                outcome = outcome_fetcher(symbol=symbol, magic=magic)
+            except Exception as exc:
+                logger.warning("Unable to fetch MT5 closed outcome for {}: {}", symbol, exc)
+
+        entry_price = _safe_float(tracked_position.get("entry_price", 0.0))
+        qty = _safe_float(tracked_position.get("qty", 0.0))
+        side = str(tracked_position.get("side", "")).upper() or "UNKNOWN"
+        exit_price = _safe_float((outcome.exit_price if outcome else 0.0), 0.0)
+        if exit_price <= 0:
+            exit_price = _safe_float(latest.get("close", 0.0), 0.0)
+
+        if entry_price > 0 and qty > 0 and exit_price > 0:
+            if side == "BUY":
+                estimated_pnl = (exit_price - entry_price) * qty
+            else:
+                estimated_pnl = (entry_price - exit_price) * qty
+            realized_pnl = float(outcome.pnl) if outcome else estimated_pnl
+            result = "WIN" if realized_pnl > 0 else "LOSS" if realized_pnl < 0 else "FLAT"
+            logger.info(
+                "MT5 trade outcome: result={} side={} qty={} entry={} exit={} pnl={} closed_at={} reason={}",
+                result,
+                side,
+                qty,
+                entry_price,
+                exit_price,
+                realized_pnl,
+                outcome.close_time if outcome else latest_close_time,
+                outcome.reason if outcome else "state_reconcile",
+            )
+            _record_exit_risk_metrics(state_store, symbol, exit_price)
+        state_store.clear_position(symbol)
+
     if position is not None:
         logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
         state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "position_open"})

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import pandas as pd
@@ -31,6 +31,17 @@ class MT5Position:
     volume: float
     price_open: float
     magic: int
+
+
+@dataclass
+class MT5ClosedOutcome:
+    side: str
+    volume: float
+    entry_price: float
+    exit_price: float
+    pnl: float
+    close_time: str
+    reason: str
 
 
 class MT5Connector:
@@ -251,3 +262,69 @@ class MT5Connector:
             raise RuntimeError(f"MT5 close failed retcode={result.retcode}, comment={result.comment}")
         logger.info("Closed MT5 position ticket={} symbol={} side={}", position.ticket, symbol, position.side)
         return {"retcode": int(result.retcode), "order": int(result.order), "deal": int(result.deal)}
+
+    def get_latest_closed_outcome(self, symbol: str, magic: Optional[int] = None, lookback_days: int = 7) -> Optional[MT5ClosedOutcome]:
+        """Return latest closed trade outcome for symbol/magic from MT5 deal history."""
+        if mt5 is None:
+            return None
+
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=max(1, lookback_days))
+        deals = mt5.history_deals_get(start, end)
+        if not deals:
+            return None
+
+        deal_entry_out = int(getattr(mt5, "DEAL_ENTRY_OUT", 1))
+        deal_entry_out_by = int(getattr(mt5, "DEAL_ENTRY_OUT_BY", 3))
+        deal_entry_in = int(getattr(mt5, "DEAL_ENTRY_IN", 0))
+        buy_type = int(getattr(mt5, "DEAL_TYPE_BUY", 0))
+
+        filtered = [d for d in deals if str(getattr(d, "symbol", "")) == symbol]
+        if magic is not None:
+            filtered = [d for d in filtered if int(getattr(d, "magic", 0)) == int(magic)]
+        if not filtered:
+            return None
+
+        filtered.sort(key=lambda d: int(getattr(d, "time_msc", 0) or 0))
+        out_deal = None
+        for d in reversed(filtered):
+            entry_code = int(getattr(d, "entry", -1))
+            if entry_code in (deal_entry_out, deal_entry_out_by):
+                out_deal = d
+                break
+        if out_deal is None:
+            return None
+
+        position_id = int(getattr(out_deal, "position_id", 0) or 0)
+        in_deal = None
+        if position_id > 0:
+            for d in reversed(filtered):
+                if int(getattr(d, "position_id", 0) or 0) != position_id:
+                    continue
+                if int(getattr(d, "entry", -1)) == deal_entry_in:
+                    in_deal = d
+                    break
+
+        if in_deal is None:
+            return None
+
+        side = "BUY" if int(getattr(in_deal, "type", -1)) == buy_type else "SELL"
+        volume = float(getattr(out_deal, "volume", 0.0) or 0.0)
+        entry_price = float(getattr(in_deal, "price", 0.0) or 0.0)
+        exit_price = float(getattr(out_deal, "price", 0.0) or 0.0)
+        profit = float(getattr(out_deal, "profit", 0.0) or 0.0)
+        commission = float(getattr(out_deal, "commission", 0.0) or 0.0)
+        swap = float(getattr(out_deal, "swap", 0.0) or 0.0)
+        pnl = profit + commission + swap
+        close_ts = datetime.fromtimestamp(int(getattr(out_deal, "time", 0) or 0), tz=timezone.utc).isoformat()
+        reason = str(getattr(out_deal, "comment", "") or "closed")
+
+        return MT5ClosedOutcome(
+            side=side,
+            volume=volume,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            pnl=pnl,
+            close_time=close_ts,
+            reason=reason,
+        )

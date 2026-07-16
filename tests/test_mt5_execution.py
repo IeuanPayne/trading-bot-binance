@@ -76,6 +76,9 @@ class FakeMT5Connector:
         )
         return {"retcode": 0, "order": 1, "deal": 2}
 
+    def get_latest_closed_outcome(self, symbol: str, magic: int | None = None):
+        return None
+
     def close_position(self, symbol: str, position, comment: str):
         self.closed.append({"symbol": symbol, "ticket": position.ticket, "comment": comment})
         return {"retcode": 0, "order": 3, "deal": 4}
