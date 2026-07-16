@@ -456,7 +456,6 @@ def _evaluate_short_exit(position: dict, latest) -> tuple[str | None, float | No
     take_profit = _safe_float(position.get("take_profit", 0.0))
     high = _safe_float(latest.get("high", 0.0))
     low = _safe_float(latest.get("low", 0.0))
-    close = _safe_float(latest.get("close", 0.0))
 
     if stop_price > 0 and high >= stop_price:
         return "tp/sl", stop_price
