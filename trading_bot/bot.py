@@ -6,6 +6,7 @@ from .backtest import ema_channel_backtest
 from .execution import run_paper_trade
 from .mt5_execution import run_mt5_trade
 from .mt5_connector import MT5Connector
+from .tradingview_webhook import WebhookTradeSettings, start_tradingview_webhook_server
 from .grid_backtest import run_grid_backtest, print_grid_summary
 from .metrics_persistence import HTMLReportGenerator
 from .config import (
@@ -39,6 +40,12 @@ from .config import (
     PIP_SIZE,
     SESSION,
     SESSION_TZ_OFFSET,
+    TV_ALLOWED_SYMBOLS,
+    TV_ALLOWED_TIMEFRAMES,
+    TV_WEBHOOK_HOST,
+    TV_WEBHOOK_PATH,
+    TV_WEBHOOK_PORT,
+    TV_WEBHOOK_SECRET,
     validate_runtime_args,
 )
 
@@ -141,7 +148,7 @@ def main():
     parser.add_argument("--ema3-len", "--slow", dest="ema3_len", type=int, default=EMA3_LEN)
     parser.add_argument("--ema4-len", dest="ema4_len", type=int, default=EMA4_LEN)
     parser.add_argument("--ema5-len", dest="ema5_len", type=int, default=EMA5_LEN)
-    parser.add_argument("--mode", choices=["backtest", "paper", "grid-backtest", "mt5"], default="backtest")
+    parser.add_argument("--mode", choices=["backtest", "paper", "grid-backtest", "mt5", "tv-webhook"], default="backtest")
     parser.add_argument("--session", choices=["London", "NewYork", "Both", "Off"], default=SESSION)
     parser.add_argument("--london-start", type=int, default=LONDON_START)
     parser.add_argument("--london-end", type=int, default=LONDON_END)
@@ -163,6 +170,10 @@ def main():
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--disable-oco", action="store_true")
     parser.add_argument("--state-file", default=MT5_STATE_FILE)
+    parser.add_argument("--tv-host", default=TV_WEBHOOK_HOST)
+    parser.add_argument("--tv-port", type=int, default=TV_WEBHOOK_PORT)
+    parser.add_argument("--tv-path", default=TV_WEBHOOK_PATH)
+    parser.add_argument("--tv-secret", default=TV_WEBHOOK_SECRET)
     parser.add_argument("--output", type=str, help="CSV output file for grid backtest results")
     parser.add_argument("--export-report", action="store_true", help="Generate HTML report for backtest")
     args = parser.parse_args()
@@ -237,6 +248,44 @@ def main():
             )
         finally:
             connector.shutdown()
+    elif args.mode == "tv-webhook":
+        if not args.tv_secret:
+            parser.error("tv-webhook mode requires TV_WEBHOOK_SECRET (or --tv-secret)")
+
+        magic = _effective_magic(args.interval, args.base_magic, args.auto_magic)
+
+        def _connector_factory() -> MT5Connector:
+            return MT5Connector(
+                login=int(MT5_LOGIN or "0"),
+                password=MT5_PASSWORD or "",
+                server=MT5_SERVER or "",
+                terminal_path=MT5_TERMINAL_PATH,
+                deviation=args.slippage,
+                magic=magic,
+            )
+
+        settings = WebhookTradeSettings(
+            state_file=args.state_file,
+            max_spread_pips=args.max_spread_pips,
+            pip_size=args.pip_size,
+            order_pct=args.order_pct,
+            use_risk_pct=args.use_risk_pct,
+            risk_pct=args.risk_pct,
+            sl_pips=args.sl_pips,
+            tp_pips=args.tp_pips,
+            stop_pips=args.stop_pips,
+            magic=magic,
+        )
+        start_tradingview_webhook_server(
+            host=args.tv_host,
+            port=args.tv_port,
+            path=args.tv_path,
+            secret=args.tv_secret,
+            connector_factory=_connector_factory,
+            settings=settings,
+            allowed_symbols=TV_ALLOWED_SYMBOLS,
+            allowed_timeframes=TV_ALLOWED_TIMEFRAMES,
+        )
     elif args.mode == "grid-backtest":
         results = run_grid_backtest(
             symbol=args.symbol,

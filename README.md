@@ -130,6 +130,44 @@ python scripts/soak_mt5.py --interval 15m --duration-hours 0 --run-now
 
 `--duration-hours 0` means run indefinitely.
 
+### 6b. Run TradingView Webhook Mode (MT5 Execution)
+
+You can receive TradingView alerts over webhook and forward them to MT5 execution.
+
+Start the webhook server:
+
+```bash
+PYTHONPATH=$(pwd) .venv/bin/python3 -m trading_bot.bot --mode tv-webhook \
+  --interval 15m --use-risk-pct --risk-pct 1 --sl-pips 70 --tp-pips 70
+```
+
+Default endpoint comes from env vars:
+
+- `TV_WEBHOOK_HOST` (default `0.0.0.0`)
+- `TV_WEBHOOK_PORT` (default `8080`)
+- `TV_WEBHOOK_PATH` (default `/tradingview/webhook`)
+- `TV_WEBHOOK_SECRET` (required)
+
+Expected TradingView webhook JSON payload:
+
+```json
+{
+  "secret": "YOUR_SHARED_SECRET",
+  "strategy_id": "playbit-ema",
+  "signal_id": "optional-unique-id",
+  "symbol": "XAUUSD",
+  "timeframe": "15m",
+  "side": "sell",
+  "timestamp": "2026-07-16T12:45:00Z"
+}
+```
+
+Notes:
+
+- The bot de-duplicates by `signal_id` (or a deterministic fallback key).
+- Allowed symbols/timeframes can be restricted via `TV_ALLOWED_SYMBOLS` and `TV_ALLOWED_TIMEFRAMES`.
+- Orders are placed through the same MT5 risk, SL/TP, and magic settings you already use.
+
 ### 7. Windows VPS Auto-Start (Task Scheduler)
 
 This repo includes a wrapper and task template:

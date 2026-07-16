@@ -27,6 +27,12 @@ def _as_int(value: str | None, default: int = 0) -> int:
     except ValueError:
         return default
 
+
+def _as_csv_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
 # Binance/testnet settings
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
 BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
@@ -65,6 +71,12 @@ MT5_SLIPPAGE = _as_int(os.getenv("MT5_SLIPPAGE"), default=30)
 MT5_AUTO_MAGIC = _as_bool(os.getenv("MT5_AUTO_MAGIC", "True"), default=True)
 MT5_BASE_MAGIC = _as_int(os.getenv("MT5_BASE_MAGIC"), default=20260629)
 MT5_SIGNAL_DEBUG = _as_bool(os.getenv("MT5_SIGNAL_DEBUG", "False"), default=False)
+TV_WEBHOOK_HOST = os.getenv("TV_WEBHOOK_HOST", "0.0.0.0")
+TV_WEBHOOK_PORT = _as_int(os.getenv("TV_WEBHOOK_PORT"), default=8080)
+TV_WEBHOOK_PATH = os.getenv("TV_WEBHOOK_PATH", "/tradingview/webhook")
+TV_WEBHOOK_SECRET = os.getenv("TV_WEBHOOK_SECRET")
+TV_ALLOWED_SYMBOLS = _as_csv_list(os.getenv("TV_ALLOWED_SYMBOLS"))
+TV_ALLOWED_TIMEFRAMES = _as_csv_list(os.getenv("TV_ALLOWED_TIMEFRAMES"))
 
 # Alerting settings
 ALERTS_ENABLED = _as_bool(os.getenv("ALERTS_ENABLED", "False"), default=False)
@@ -95,7 +107,7 @@ def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None
         if stop_pips <= 0:
             raise ValueError("stop-pips must be greater than zero (absolute price distance)")
 
-    if mode == "mt5":
+    if mode in ("mt5", "tv-webhook"):
         if not MT5_ENABLED:
             raise ValueError("MT5 mode requires MT5_ENABLED=True")
         if not MT5_LOGIN or not MT5_PASSWORD or not MT5_SERVER:
@@ -129,6 +141,8 @@ def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None
         raise ValueError("MT5_TP_PIPS must be > 0")
     if MT5_SLIPPAGE < 0:
         raise ValueError("MT5_SLIPPAGE must be >= 0")
+    if TV_WEBHOOK_PORT <= 0 or TV_WEBHOOK_PORT > 65535:
+        raise ValueError("TV_WEBHOOK_PORT must be in 1..65535")
 
     if mode == "paper" and not BINANCE_TESTNET and not ALLOW_LIVE_TRADING:
         raise ValueError(
