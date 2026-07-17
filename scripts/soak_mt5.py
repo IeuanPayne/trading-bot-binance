@@ -43,6 +43,7 @@ from trading_bot.config import (
 )
 from trading_bot.mt5_connector import MT5Connector
 from trading_bot.mt5_execution import run_mt5_trade
+from trading_bot.state_store import TradingStateStore
 
 
 logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
@@ -126,6 +127,21 @@ def _run_cycle(args) -> None:
         connector.shutdown()
 
 
+def _reset_risk_state(state_file: str) -> None:
+    store = TradingStateStore(state_file)
+    store.set_runtime_state(
+        "mt5_risk_state",
+        {
+            "day": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "realized_pnl_today": 0.0,
+            "trades_today": 0,
+            "consecutive_losses": 0,
+            "breaker_tripped": False,
+            "breaker_reason": "",
+        },
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Controlled MT5 soak runner")
     parser.add_argument("--symbol", default=MT5_SYMBOL)
@@ -159,6 +175,11 @@ def main() -> None:
     parser.add_argument("--max-runs", type=int, default=0, help="0 means unlimited until duration expires")
     parser.add_argument("--buffer-seconds", type=int, default=5)
     parser.add_argument("--run-now", action="store_true", help="Run immediately before candle-aligned loop")
+    parser.add_argument(
+        "--reset-risk-state",
+        action="store_true",
+        help="Reset persisted MT5 risk breaker counters before running.",
+    )
     args = parser.parse_args()
 
     validate_runtime_args("mt5", args.order_pct, args.stop_pips)
@@ -175,6 +196,10 @@ def main() -> None:
         args.duration_hours,
         args.state_file,
     )
+
+    if args.reset_risk_state:
+        _reset_risk_state(args.state_file)
+        logger.warning("Reset MT5 risk state in {}", args.state_file)
 
     if args.run_now:
         logger.info("Running immediate pre-loop MT5 cycle")
