@@ -168,18 +168,47 @@ class MT5Connector:
         )
 
     def volume_from_risk_pips(self, symbol: str, risk_amount: float, sl_pips: float, pip_size: float) -> float:
-        """Mirror the EA risk model where risk is sized against SL in pips."""
+        """Compute lot size from risk using broker economics for the symbol."""
         if risk_amount <= 0 or sl_pips <= 0 or pip_size <= 0:
             return 0.0
 
-        # EA equivalent:
-        # sl_value = SL_Pips * PipSize      (dollar risk per 0.01 lot)
-        # lots = risk_amt / (sl_value * 100)
-        sl_value = sl_pips * pip_size
-        denominator = sl_value * 100.0
-        if denominator <= 0:
+        sl_distance = sl_pips * pip_size
+        if sl_distance <= 0:
             return 0.0
-        lots = risk_amount / denominator
+
+        # Prefer MT5's own profit model for a 1-lot adverse move to SL.
+        loss_per_lot = 0.0
+        entry = self.get_symbol_price(symbol, side="BUY")
+        if entry > 0 and hasattr(mt5, "order_calc_profit") and hasattr(mt5, "ORDER_TYPE_BUY"):
+            try:
+                adverse_close = max(0.0, entry - sl_distance)
+                estimated = mt5.order_calc_profit(mt5.ORDER_TYPE_BUY, symbol, 1.0, entry, adverse_close)
+                if estimated is not None:
+                    loss_per_lot = abs(float(estimated))
+            except Exception:
+                loss_per_lot = 0.0
+
+        # Fallback: derive per-lot loss from symbol tick value and tick size.
+        if loss_per_lot <= 0:
+            info = mt5.symbol_info(symbol)
+            if info is not None:
+                tick_size = float(
+                    getattr(info, "trade_tick_size", 0.0) or getattr(info, "point", 0.0) or 0.0
+                )
+                tick_value = float(
+                    getattr(info, "trade_tick_value_loss", 0.0)
+                    or getattr(info, "trade_tick_value", 0.0)
+                    or 0.0
+                )
+                if tick_size > 0 and tick_value > 0:
+                    ticks_to_sl = sl_distance / tick_size
+                    loss_per_lot = abs(ticks_to_sl * tick_value)
+
+        # Last-resort fallback keeps behavior predictable if broker metadata is unavailable.
+        if loss_per_lot <= 0:
+            loss_per_lot = sl_distance * 100.0
+
+        lots = risk_amount / loss_per_lot if loss_per_lot > 0 else 0.0
         return self.normalize_volume(symbol, lots)
 
     def normalize_volume(self, symbol: str, volume: float) -> float:
