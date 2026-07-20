@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import ipaddress
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -48,6 +50,46 @@ def _normalize_side(raw: Any) -> str:
 def _is_sdk_web_language_probe(path: str) -> bool:
     normalized = path.rstrip("/")
     return normalized == "/SDK/webLanguage"
+
+
+def _should_suppress_probe_log(request_line: str, status_code: int) -> bool:
+    # Public webhook endpoints receive constant scanner traffic; suppress common noise.
+    if status_code in (404, 400, 405, 505):
+        if request_line.startswith(("GET / ", "GET /favicon.ico", "GET /robots.txt", "PRI * HTTP/2.0")):
+            return True
+        if "GET /." in request_line or "GET /cgi-bin/" in request_line or "GET /hudson" in request_line:
+            return True
+        if "GET /_next/image" in request_line or "POST /goform/" in request_line:
+            return True
+        if "\x16\x03\x01" in request_line:
+            return True
+    return False
+
+
+def _parse_allowed_source_ips(allowed_source_ips: list[str] | None) -> list[ipaddress._BaseNetwork]:
+    networks: list[ipaddress._BaseNetwork] = []
+    for raw in allowed_source_ips or []:
+        value = str(raw).strip()
+        if not value:
+            continue
+        if "/" in value:
+            networks.append(ipaddress.ip_network(value, strict=False))
+        else:
+            ip_obj = ipaddress.ip_address(value)
+            # Host-only rule: /32 for IPv4, /128 for IPv6.
+            prefix_len = 32 if ip_obj.version == 4 else 128
+            networks.append(ipaddress.ip_network(f"{value}/{prefix_len}", strict=False))
+    return networks
+
+
+def _is_source_ip_allowed(remote_ip: str, allowed_networks: list[ipaddress._BaseNetwork]) -> bool:
+    if not allowed_networks:
+        return True
+    try:
+        addr = ipaddress.ip_address(remote_ip)
+    except ValueError:
+        return False
+    return any(addr in network for network in allowed_networks)
 
 
 def validate_and_normalize_alert(
@@ -233,17 +275,51 @@ def start_tradingview_webhook_server(
     settings: WebhookTradeSettings,
     allowed_symbols: list[str] | None = None,
     allowed_timeframes: list[str] | None = None,
+    allowed_source_ips: list[str] | None = None,
 ) -> None:
     normalized_path = path if path.startswith("/") else f"/{path}"
+    allowed_networks = _parse_allowed_source_ips(allowed_source_ips)
+
+    class _WebhookHTTPServer(ThreadingHTTPServer):
+        def handle_error(self, request, client_address) -> None:  # type: ignore[override]
+            exc_type, exc, _ = sys.exc_info()
+            if exc_type is ConnectionResetError or isinstance(exc, ConnectionResetError):
+                logger.debug("TVWebhook {} - connection reset by peer", client_address[0])
+                return
+            super().handle_error(request, client_address)
 
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
+            if self.path.rstrip("/") in ("", "/"):
+                self._send_json(200, {"status": "ok"})
+                return
             if _is_sdk_web_language_probe(self.path):
                 self._send_json(200, {"language": "en"})
                 return
             self._send_json(404, {"error": "not_found"})
 
+        def do_HEAD(self) -> None:  # noqa: N802
+            if self.path.rstrip("/") in ("", "/"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def do_POST(self) -> None:  # noqa: N802
+            remote_ip = self.client_address[0]
+            if not _is_source_ip_allowed(remote_ip, allowed_networks):
+                logger.warning(
+                    "TVWebhook rejected: outcome=rejected reason=source_ip_not_allowed ip={} path={}",
+                    remote_ip,
+                    self.path,
+                )
+                self._send_json(403, {"error": "forbidden_source_ip"})
+                return
+
             if self.path.rstrip("/") != normalized_path.rstrip("/"):
                 self._send_json(404, {"error": "not_found"})
                 return
@@ -272,16 +348,38 @@ def start_tradingview_webhook_server(
                 finally:
                     connector.shutdown()
 
+                outcome = str(result.get("status", "unknown"))
+                reason = str(result.get("reason", ""))
+                logger.info(
+                    "TVWebhook outcome=accepted status={} symbol={} timeframe={} side={} signal_id={} ip={} reason={}",
+                    outcome,
+                    signal.get("symbol", ""),
+                    signal.get("timeframe", ""),
+                    signal.get("side", ""),
+                    signal.get("signal_id", ""),
+                    remote_ip,
+                    reason,
+                )
                 self._send_json(200, result)
             except ValueError as exc:
                 logger.warning("TradingView webhook rejected: {}", exc)
+                logger.warning("TVWebhook outcome=rejected reason={} ip={} path={}", str(exc), remote_ip, self.path)
                 self._send_json(400, {"error": str(exc)})
             except Exception as exc:  # pragma: no cover - runtime integration
                 logger.exception("TradingView webhook failed: {}", exc)
+                logger.error("TVWebhook outcome=rejected reason=internal_error ip={} path={}", remote_ip, self.path)
                 self._send_json(500, {"error": str(exc)})
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
-            logger.debug("TVWebhook {} - {}", self.address_string(), format % args)
+            message = format % args
+            parts = message.rsplit(" ", 1)
+            status_code = 0
+            if len(parts) == 2 and parts[1].isdigit():
+                status_code = int(parts[1])
+            request_line = self.requestline or ""
+            if _should_suppress_probe_log(request_line, status_code):
+                return
+            logger.debug("TVWebhook {} - {}", self.address_string(), message)
 
         def _send_json(self, status: int, payload: dict[str, Any]) -> None:
             raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -291,6 +389,6 @@ def start_tradingview_webhook_server(
             self.end_headers()
             self.wfile.write(raw)
 
-    server = ThreadingHTTPServer((host, port), _Handler)
+    server = _WebhookHTTPServer((host, port), _Handler)
     logger.info("TradingView webhook server listening on http://{}:{}{}", host, port, normalized_path)
     server.serve_forever()

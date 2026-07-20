@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 from trading_bot.tradingview_webhook import (
     WebhookTradeSettings,
+    _is_source_ip_allowed,
+    _parse_allowed_source_ips,
+    _should_suppress_probe_log,
     process_tradingview_signal,
     validate_and_normalize_alert,
     _is_sdk_web_language_probe,
@@ -183,3 +186,25 @@ def test_is_sdk_web_language_probe_matches_expected_path():
     assert _is_sdk_web_language_probe("/SDK/webLanguage") is True
     assert _is_sdk_web_language_probe("/SDK/webLanguage/") is True
     assert _is_sdk_web_language_probe("/SDK/other") is False
+
+
+def test_should_suppress_probe_log_for_common_scanner_requests():
+    assert _should_suppress_probe_log("GET / HTTP/1.1", 404) is True
+    assert _should_suppress_probe_log("GET /.env HTTP/1.1", 404) is True
+    assert _should_suppress_probe_log("POST /goform/formJsonAjaxReq HTTP/1.1", 404) is True
+    assert _should_suppress_probe_log("POST /tradingview/webhook HTTP/1.1", 200) is False
+
+
+def test_parse_allowed_source_ips_supports_ip_and_cidr():
+    networks = _parse_allowed_source_ips(["94.154.43.243", "172.16.0.0/12"])
+    assert _is_source_ip_allowed("94.154.43.243", networks) is True
+    assert _is_source_ip_allowed("172.16.4.12", networks) is True
+    assert _is_source_ip_allowed("8.8.8.8", networks) is False
+
+
+def test_parse_allowed_source_ips_invalid_value_raises():
+    try:
+        _parse_allowed_source_ips(["not-an-ip"])
+        assert False, "expected parse failure"
+    except ValueError:
+        assert True

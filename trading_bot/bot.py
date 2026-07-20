@@ -55,6 +55,7 @@ from .config import (
     SESSION,
     SESSION_TZ_OFFSET,
     TV_ALLOWED_SYMBOLS,
+    TV_ALLOWED_SOURCE_IPS,
     TV_ALLOWED_TIMEFRAMES,
     TV_WEBHOOK_HOST,
     TV_WEBHOOK_PATH,
@@ -202,6 +203,7 @@ def main():
     parser.add_argument("--tv-port", type=int, default=TV_WEBHOOK_PORT)
     parser.add_argument("--tv-path", default=TV_WEBHOOK_PATH)
     parser.add_argument("--tv-secret", default=TV_WEBHOOK_SECRET)
+    parser.add_argument("--tv-allowed-source-ips", default=",".join(TV_ALLOWED_SOURCE_IPS))
     parser.add_argument("--tv-staged-exit", action=argparse.BooleanOptionalAction, default=MT5_STAGED_EXIT_ENABLED)
     parser.add_argument("--tv-staged-be-trigger-pips", type=float, default=MT5_STAGED_BE_TRIGGER_PIPS)
     parser.add_argument("--tv-staged-be-offset-pips", type=float, default=MT5_STAGED_BE_OFFSET_PIPS)
@@ -337,6 +339,7 @@ def main():
             settings=settings,
             allowed_symbols=TV_ALLOWED_SYMBOLS,
             allowed_timeframes=TV_ALLOWED_TIMEFRAMES,
+            allowed_source_ips=[item.strip() for item in str(args.tv_allowed_source_ips).split(",") if item.strip()],
         )
     elif args.mode == "grid-backtest":
         results = run_grid_backtest(

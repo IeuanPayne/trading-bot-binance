@@ -91,6 +91,7 @@ TV_WEBHOOK_PATH = os.getenv("TV_WEBHOOK_PATH", "/tradingview/webhook")
 TV_WEBHOOK_SECRET = os.getenv("TV_WEBHOOK_SECRET")
 TV_ALLOWED_SYMBOLS = _as_csv_list(os.getenv("TV_ALLOWED_SYMBOLS"))
 TV_ALLOWED_TIMEFRAMES = _as_csv_list(os.getenv("TV_ALLOWED_TIMEFRAMES"))
+TV_ALLOWED_SOURCE_IPS = _as_csv_list(os.getenv("TV_ALLOWED_SOURCE_IPS"))
 
 # Alerting settings
 ALERTS_ENABLED = _as_bool(os.getenv("ALERTS_ENABLED", "False"), default=False)
