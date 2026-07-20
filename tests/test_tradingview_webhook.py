@@ -71,6 +71,26 @@ def _settings(state_file: str) -> WebhookTradeSettings:
     )
 
 
+def _staged_settings(state_file: str) -> WebhookTradeSettings:
+    return WebhookTradeSettings(
+        state_file=state_file,
+        max_spread_pips=100.0,
+        pip_size=0.10,
+        order_pct=0.01,
+        use_risk_pct=True,
+        risk_pct=1.0,
+        sl_pips=70.0,
+        tp_pips=70.0,
+        stop_pips=0.7,
+        magic=20260644,
+        staged_exit_enabled=True,
+        staged_be_trigger_pips=30.0,
+        staged_be_offset_pips=5.0,
+        staged_trail_pips=50.0,
+        staged_tp4_open=False,
+    )
+
+
 def test_validate_and_normalize_alert_rejects_bad_secret():
     payload = {
         "secret": "wrong",
@@ -125,3 +145,34 @@ def test_process_tradingview_signal_skips_when_position_open(tmp_path):
     assert result["status"] == "skipped"
     assert result["reason"] == "position_open"
     assert len(connector.orders) == 0
+
+
+def test_process_tradingview_signal_stores_staged_exit_state(tmp_path):
+    connector = _FakeConnector()
+    settings = _staged_settings(str(tmp_path / "tv_state.db"))
+    signal = {
+        "signal_id": "ghi789",
+        "strategy_id": "playbit",
+        "symbol": "XAUUSD",
+        "timeframe": "15m",
+        "side": "BUY",
+        "timestamp": "2026-07-16T10:30:00Z",
+    }
+
+    result = process_tradingview_signal(connector, signal, settings)
+
+    assert result["status"] == "filled"
+    assert len(connector.orders) == 1
+
+    from trading_bot.state_store import TradingStateStore
+
+    store = TradingStateStore(str(tmp_path / "tv_state.db"))
+    position = store.get_position("XAUUSD")
+    assert position is not None
+    assert position["staged_exit_enabled"] is True
+    assert position["tp1"] == 107.0
+    assert position["tp2"] == 114.0
+    assert position["tp3"] == 121.0
+    assert position["tp4"] == 170.0
+    assert position["moved_to_be"] is False
+    assert position["trailing_active"] is False

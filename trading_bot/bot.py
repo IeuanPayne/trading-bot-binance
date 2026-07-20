@@ -202,6 +202,11 @@ def main():
     parser.add_argument("--tv-port", type=int, default=TV_WEBHOOK_PORT)
     parser.add_argument("--tv-path", default=TV_WEBHOOK_PATH)
     parser.add_argument("--tv-secret", default=TV_WEBHOOK_SECRET)
+    parser.add_argument("--tv-staged-exit", action=argparse.BooleanOptionalAction, default=MT5_STAGED_EXIT_ENABLED)
+    parser.add_argument("--tv-staged-be-trigger-pips", type=float, default=MT5_STAGED_BE_TRIGGER_PIPS)
+    parser.add_argument("--tv-staged-be-offset-pips", type=float, default=MT5_STAGED_BE_OFFSET_PIPS)
+    parser.add_argument("--tv-staged-trail-pips", type=float, default=MT5_STAGED_TRAIL_PIPS)
+    parser.add_argument("--tv-staged-tp4-open", action=argparse.BooleanOptionalAction, default=MT5_STAGED_TP4_OPEN)
     parser.add_argument("--output", type=str, help="CSV output file for grid backtest results")
     parser.add_argument("--export-report", action="store_true", help="Generate HTML report for backtest")
     args = parser.parse_args()
@@ -317,6 +322,11 @@ def main():
             tp_pips=args.tp_pips,
             stop_pips=args.stop_pips,
             magic=magic,
+            staged_exit_enabled=args.tv_staged_exit,
+            staged_be_trigger_pips=args.tv_staged_be_trigger_pips,
+            staged_be_offset_pips=args.tv_staged_be_offset_pips,
+            staged_trail_pips=args.tv_staged_trail_pips,
+            staged_tp4_open=args.tv_staged_tp4_open,
         )
         start_tradingview_webhook_server(
             host=args.tv_host,

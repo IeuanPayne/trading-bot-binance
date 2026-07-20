@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
+from .mt5_execution import _build_staged_position_state
 from .mt5_connector import MT5Connector
 from .state_store import TradingStateStore
 
@@ -24,6 +25,11 @@ class WebhookTradeSettings:
     tp_pips: float
     stop_pips: float
     magic: int
+    staged_exit_enabled: bool = False
+    staged_be_trigger_pips: float = 30.0
+    staged_be_offset_pips: float = 5.0
+    staged_trail_pips: float = 50.0
+    staged_tp4_open: bool = False
 
 
 def _utc_now_iso() -> str:
@@ -145,6 +151,38 @@ def process_tradingview_signal(
         sl = entry_price + sl_distance
         tp = entry_price - tp_distance
 
+    position_state = {
+        "side": side,
+        "qty": volume,
+        "entry_price": entry_price,
+        "sl": sl,
+        "tp": tp,
+        "updated_at": signal["timestamp"],
+        "source": "tradingview",
+        "signal_id": signal["signal_id"],
+    }
+
+    if settings.staged_exit_enabled:
+        position_state = _build_staged_position_state(
+            side=side,
+            entry_price=entry_price,
+            sl=sl,
+            qty=volume,
+            pip_size=settings.pip_size,
+            staged_be_trigger_pips=settings.staged_be_trigger_pips,
+            staged_be_offset_pips=settings.staged_be_offset_pips,
+            staged_trail_pips=settings.staged_trail_pips,
+            staged_tp4_open=settings.staged_tp4_open,
+        )
+        position_state.update(
+            {
+                "updated_at": signal["timestamp"],
+                "source": "tradingview",
+                "signal_id": signal["signal_id"],
+            }
+        )
+        tp = float(position_state.get("tp", tp))
+
     response = connector.place_market_order(
         symbol=symbol,
         side=side,
@@ -154,17 +192,7 @@ def process_tradingview_signal(
         comment=f"tv-{signal['strategy_id']}",
     )
 
-    state_store.set_position(
-        symbol,
-        {
-            "side": side,
-            "qty": volume,
-            "entry_price": entry_price,
-            "updated_at": signal["timestamp"],
-            "source": "tradingview",
-            "signal_id": signal["signal_id"],
-        },
-    )
+    state_store.set_position(symbol, position_state)
     state_store.mark_signal_processed(symbol, signal_key, {"action": side.lower(), "qty": volume})
 
     logger.info(
