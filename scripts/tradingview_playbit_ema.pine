@@ -1,0 +1,96 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © FFriZz / adapted for webhook alerts
+
+//@version=5
+indicator("PlayBit EMA Frizz Continuation", "PB-EMA", overlay=true)
+
+// Inputs
+ema1Len = input.int(8, "EMA 1 Length")
+ema2Len = input.int(13, "EMA 2 Length")
+ema3Len = input.int(21, "EMA 3 Length")
+ema4Len = input.int(34, "EMA 4 Length")
+ema5Len = input.int(55, "EMA 5 Length")
+
+lineColor = input.color(color.white, "Line Color")
+showFill = input.bool(true, "Show Fill")
+fillColorInput = input.color(color.rgb(120, 123, 134, 67), "Neutral Fill Color")
+
+// EMAs
+ema1 = ta.ema(close, ema1Len)
+ema2 = ta.ema(close, ema2Len)
+ema3 = ta.ema(close, ema3Len)
+ema4 = ta.ema(close, ema4Len)
+ema5 = ta.ema(close, ema5Len)
+
+// Channel boundaries
+chTop = math.max(ema1, math.max(ema2, math.max(ema3, math.max(ema4, ema5))))
+chBot = math.min(ema1, math.min(ema2, math.min(ema3, math.min(ema4, ema5))))
+
+bullStack = ema1 > ema2 and ema2 > ema3 and ema3 > ema4 and ema4 > ema5
+bearStack = ema1 < ema2 and ema2 < ema3 and ema3 < ema4 and ema4 < ema5
+
+// State machine
+var string trend = "NONE"
+var string entryState = "IDLE"
+
+longSignal = false
+shortSignal = false
+breakoutUp = false
+breakoutDown = false
+retestUp = false
+retestDown = false
+confirmUp = false
+confirmDown = false
+
+if barstate.isconfirmed
+    breakoutUp := bullStack and close > chTop
+    breakoutDown := bearStack and close < chBot
+
+    retestUp := trend == "UP" and low <= chTop and close >= chBot
+    retestDown := trend == "DOWN" and high >= chBot and close <= chTop
+
+    confirmUp := trend == "UP" and close > chTop
+    confirmDown := trend == "DOWN" and close < chBot
+
+    if entryState == "IDLE"
+        if breakoutUp
+            trend := "UP"
+            entryState := "WAIT_RETEST"
+        else if breakoutDown
+            trend := "DOWN"
+            entryState := "WAIT_RETEST"
+
+    else if entryState == "WAIT_RETEST"
+        if retestUp or retestDown
+            entryState := "WAIT_CONFIRM"
+
+        if (trend == "UP" and bearStack) or (trend == "DOWN" and bullStack)
+            trend := "NONE"
+            entryState := "IDLE"
+
+    else if entryState == "WAIT_CONFIRM"
+        if confirmUp
+            longSignal := true
+        else if confirmDown
+            shortSignal := true
+
+        trend := "NONE"
+        entryState := "IDLE"
+
+// Plots
+p1 = plot(ema1, color=lineColor, title="EMA1")
+p2 = plot(ema2, color=lineColor, title="EMA2")
+p3 = plot(ema3, color=lineColor, title="EMA3")
+p4 = plot(ema4, color=lineColor, title="EMA4")
+p5 = plot(ema5, color=lineColor, title="EMA5")
+
+fillColor = showFill ? (close < chBot ? color.new(color.red, 67) : close > chTop ? color.new(color.lime, 67) : fillColorInput) : na
+fill(p1, p5, color=fillColor, fillgaps=true)
+
+// Visual markers
+plotshape(longSignal, title="Long Signal", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny, text="LONG")
+plotshape(shortSignal, title="Short Signal", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny, text="SHORT")
+
+// Alerts
+alertcondition(longSignal, title="PB-EMA Long", message='{"secret":"YOUR_TV_WEBHOOK_SECRET","strategy_id":"pb-ema","signal_id":"{{ticker}}-{{interval}}-{{timenow}}-long","symbol":"{{ticker}}","timeframe":"{{interval}}","side":"buy","timestamp":"{{timenow}}"}')
+alertcondition(shortSignal, title="PB-EMA Short", message='{"secret":"YOUR_TV_WEBHOOK_SECRET","strategy_id":"pb-ema","signal_id":"{{ticker}}-{{interval}}-{{timenow}}-short","symbol":"{{ticker}}","timeframe":"{{interval}}","side":"sell","timestamp":"{{timenow}}"}')
