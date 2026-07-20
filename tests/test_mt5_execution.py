@@ -84,10 +84,6 @@ class FakeMT5Connector:
     def get_latest_closed_outcome(self, symbol: str, magic: int | None = None):
         return None
 
-    def close_position(self, symbol: str, position, comment: str):
-        self.closed.append({"symbol": symbol, "ticket": position.ticket, "comment": comment, "volume": position.volume})
-        return {"retcode": 0, "order": 3, "deal": 4}
-
     def normalize_volume(self, symbol: str, volume: float) -> float:
         return volume
 
