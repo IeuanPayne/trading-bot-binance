@@ -13,10 +13,25 @@ from .config import (
     MAX_DRAWDOWN_PCT,
     MAX_TRADES_PER_DAY,
     MT5_BASE_MAGIC,
+    MT5_STAGED_BE_OFFSET_PIPS,
+    MT5_STAGED_BE_TRIGGER_PIPS,
+    MT5_STAGED_EXIT_ENABLED,
+    MT5_STAGED_TP4_OPEN,
+    MT5_STAGED_TRAIL_PIPS,
     PIP_SIZE,
 )
 from .mt5_connector import MT5Connector
 from .state_store import TradingStateStore
+
+
+_STAGED_TP_MULTIPLIERS = {
+    "tp1": 1.0,
+    "tp2": 2.0,
+    "tp3": 3.0,
+    "tp4": 10.0,
+}
+
+_STAGED_TP_ORDER = ("tp1", "tp2", "tp3", "tp4")
 
 
 def _safe_float(value, default: float = 0.0) -> float:
@@ -80,6 +95,13 @@ def _record_exit_risk_metrics(state_store: TradingStateStore, symbol: str, exit_
     side = str(position.get("side", "BUY")).upper()
     pnl = (exit_price - entry_price) * qty if side == "BUY" else (entry_price - exit_price) * qty
 
+    _record_realized_pnl(state_store, pnl)
+
+
+def _record_realized_pnl(state_store: TradingStateStore, pnl: float) -> None:
+    if pnl == 0:
+        return
+
     risk_state = state_store.get_runtime_state("mt5_risk_state", default={}) or {}
     if risk_state.get("day") != _today_key():
         risk_state = _load_risk_state(state_store, current_equity=0.0)
@@ -90,6 +112,298 @@ def _record_exit_risk_metrics(state_store: TradingStateStore, symbol: str, exit_
     else:
         risk_state["consecutive_losses"] = 0
     state_store.set_runtime_state("mt5_risk_state", risk_state)
+
+
+def _staged_target_price(side: str, entry_price: float, initial_r: float, rr_multiple: float) -> float:
+    if side == "BUY":
+        return entry_price + (initial_r * rr_multiple)
+    return entry_price - (initial_r * rr_multiple)
+
+
+def _staged_trigger_price(side: str, entry_price: float, distance: float) -> float:
+    if side == "BUY":
+        return entry_price + distance
+    return entry_price - distance
+
+
+def _target_hit(side: str, mark_price: float, target_price: float) -> bool:
+    if side == "BUY":
+        return mark_price >= target_price
+    return mark_price <= target_price
+
+
+def _is_more_protective_stop(side: str, candidate: float, current: float) -> bool:
+    if current <= 0:
+        return True
+    if side == "BUY":
+        return candidate > current
+    return candidate < current
+
+
+def _is_valid_stop(side: str, stop_price: float, mark_price: float) -> bool:
+    if stop_price <= 0 or mark_price <= 0:
+        return False
+    if side == "BUY":
+        return stop_price < mark_price
+    return stop_price > mark_price
+
+
+def _normalize_partial_close_volume(connector: MT5Connector, symbol: str, requested: float, remaining: float, is_final: bool) -> float:
+    if is_final:
+        return remaining
+
+    close_volume = requested
+    volume_normalizer = getattr(connector, "normalize_volume", None)
+    if callable(volume_normalizer):
+        close_volume = float(volume_normalizer(symbol, requested))
+
+    close_volume = min(close_volume, remaining)
+    if close_volume <= 0:
+        return 0.0
+    return close_volume
+
+
+def _round_position_qty(qty: float) -> float:
+    return round(max(0.0, qty), 12)
+
+
+def _build_staged_position_state(
+    side: str,
+    entry_price: float,
+    sl: float,
+    qty: float,
+    pip_size: float,
+    staged_be_trigger_pips: float,
+    staged_be_offset_pips: float,
+    staged_trail_pips: float,
+    staged_tp4_open: bool,
+) -> dict:
+    initial_r = abs(entry_price - sl)
+    be_trigger_distance = staged_be_trigger_pips * pip_size
+    be_offset_distance = staged_be_offset_pips * pip_size
+    trail_distance = staged_trail_pips * pip_size
+    be_stop_price = entry_price + be_offset_distance if side == "BUY" else entry_price - be_offset_distance
+
+    state = {
+        "side": side,
+        "qty": qty,
+        "initial_qty": qty,
+        "entry_price": entry_price,
+        "sl": sl,
+        "initial_sl": sl,
+        "initial_r": initial_r,
+        "updated_at": "",
+        "staged_exit_enabled": True,
+        "moved_to_be": False,
+        "trailing_active": False,
+        "be_trigger_price": _staged_trigger_price(side, entry_price, be_trigger_distance),
+        "be_stop_price": be_stop_price,
+        "trail_distance": trail_distance,
+        "tp4_open": staged_tp4_open,
+        "realized_pnl": 0.0,
+    }
+
+    for label, rr_multiple in _STAGED_TP_MULTIPLIERS.items():
+        state[label] = _staged_target_price(side, entry_price, initial_r, rr_multiple)
+        state[f"{label}_hit"] = False
+
+    state["tp"] = 0.0 if staged_tp4_open else state["tp4"]
+    return state
+
+
+def _ensure_staged_position_state(
+    tracked_position: dict | None,
+    position,
+    pip_size: float,
+    staged_be_trigger_pips: float,
+    staged_be_offset_pips: float,
+    staged_trail_pips: float,
+    staged_tp4_open: bool,
+) -> dict | None:
+    tracked = dict(tracked_position or {})
+    side = str(tracked.get("side", getattr(position, "side", ""))).upper()
+    entry_price = _safe_float(tracked.get("entry_price", getattr(position, "price_open", 0.0)))
+    current_sl = _safe_float(tracked.get("initial_sl", tracked.get("sl", getattr(position, "sl", 0.0))))
+    current_qty = _safe_float(tracked.get("qty", getattr(position, "volume", 0.0)))
+
+    if side not in ("BUY", "SELL") or entry_price <= 0 or current_sl <= 0 or current_qty <= 0:
+        return None
+
+    base_state = _build_staged_position_state(
+        side=side,
+        entry_price=entry_price,
+        sl=current_sl,
+        qty=current_qty,
+        pip_size=pip_size,
+        staged_be_trigger_pips=staged_be_trigger_pips,
+        staged_be_offset_pips=staged_be_offset_pips,
+        staged_trail_pips=staged_trail_pips,
+        staged_tp4_open=staged_tp4_open,
+    )
+
+    merged = base_state
+    merged.update(tracked)
+    merged["side"] = side
+    merged["entry_price"] = entry_price
+    merged.setdefault("initial_qty", current_qty)
+    merged.setdefault("initial_sl", current_sl)
+    merged.setdefault("initial_r", abs(entry_price - current_sl))
+    merged.setdefault("be_trigger_price", base_state["be_trigger_price"])
+    merged.setdefault("be_stop_price", base_state["be_stop_price"])
+    merged.setdefault("trail_distance", base_state["trail_distance"])
+    merged.setdefault("tp4_open", staged_tp4_open)
+    merged.setdefault("tp", 0.0 if staged_tp4_open else merged.get("tp4", base_state["tp4"]))
+    return merged
+
+
+def _maybe_manage_staged_exit(
+    connector: MT5Connector,
+    state_store: TradingStateStore,
+    symbol: str,
+    position,
+    tracked_position: dict | None,
+    pip_size: float,
+    staged_exit_enabled: bool,
+    staged_be_trigger_pips: float,
+    staged_be_offset_pips: float,
+    staged_trail_pips: float,
+    staged_tp4_open: bool,
+    latest_close_time: str,
+) -> bool:
+    if not staged_exit_enabled:
+        return False
+
+    tracked = _ensure_staged_position_state(
+        tracked_position=tracked_position,
+        position=position,
+        pip_size=pip_size,
+        staged_be_trigger_pips=staged_be_trigger_pips,
+        staged_be_offset_pips=staged_be_offset_pips,
+        staged_trail_pips=staged_trail_pips,
+        staged_tp4_open=staged_tp4_open,
+    )
+    if tracked is None:
+        return False
+
+    side = str(tracked.get("side", getattr(position, "side", ""))).upper()
+    mark_price = connector.get_symbol_price(symbol, side="SELL" if side == "BUY" else "BUY")
+    if mark_price <= 0:
+        return True
+
+    current_sl = _safe_float(getattr(position, "sl", tracked.get("sl", 0.0)), default=_safe_float(tracked.get("sl", 0.0)))
+    current_tp = _safe_float(getattr(position, "tp", tracked.get("tp", 0.0)), default=_safe_float(tracked.get("tp", 0.0)))
+    desired_sl = current_sl
+    desired_tp = 0.0 if tracked.get("tp4_open", False) else _safe_float(tracked.get("tp4", current_tp), current_tp)
+    remaining_qty = _safe_float(tracked.get("qty", getattr(position, "volume", 0.0)))
+    initial_qty = _safe_float(tracked.get("initial_qty", remaining_qty))
+
+    if not tracked.get("moved_to_be", False) and _target_hit(side, mark_price, _safe_float(tracked.get("be_trigger_price", 0.0))):
+        be_stop_price = _safe_float(tracked.get("be_stop_price", 0.0))
+        if _is_valid_stop(side, be_stop_price, mark_price) and _is_more_protective_stop(side, be_stop_price, desired_sl):
+            desired_sl = be_stop_price
+        tracked["moved_to_be"] = True
+
+    for label in _STAGED_TP_ORDER:
+        if label == "tp4" and tracked.get("tp4_open", False):
+            continue
+        if tracked.get(f"{label}_hit", False):
+            continue
+
+        target_price = _safe_float(tracked.get(label, 0.0))
+        if target_price <= 0 or not _target_hit(side, mark_price, target_price):
+            continue
+
+        close_volume = _normalize_partial_close_volume(
+            connector=connector,
+            symbol=symbol,
+            requested=initial_qty * 0.25,
+            remaining=remaining_qty,
+            is_final=(label == "tp4"),
+        )
+        if close_volume <= 0:
+            logger.warning("Unable to close staged MT5 slice for {} at {} because calculated close volume was invalid.", symbol, label)
+            break
+
+        response = connector.close_position(
+            symbol=symbol,
+            position=position,
+            volume=close_volume,
+            comment=f"spec-ema-channel-{label}",
+        )
+        pnl = (mark_price - _safe_float(tracked.get("entry_price", 0.0))) * close_volume
+        if side == "SELL":
+            pnl = (_safe_float(tracked.get("entry_price", 0.0)) - mark_price) * close_volume
+        _record_realized_pnl(state_store, pnl)
+
+        remaining_qty = _round_position_qty(remaining_qty - close_volume)
+        tracked["qty"] = remaining_qty
+        tracked["realized_pnl"] = float(tracked.get("realized_pnl", 0.0)) + pnl
+        tracked[f"{label}_hit"] = True
+        tracked["updated_at"] = latest_close_time
+
+        logger.info(
+            "MT5 staged exit hit: symbol={} target={} side={} close_volume={} mark_price={} remaining_qty={} response={}",
+            symbol,
+            label,
+            side,
+            close_volume,
+            mark_price,
+            remaining_qty,
+            response,
+        )
+
+        if label == "tp1":
+            tracked["trailing_active"] = True
+        elif label == "tp2":
+            tracked["trailing_active"] = False
+            tp1_price = _safe_float(tracked.get("tp1", 0.0))
+            if _is_valid_stop(side, tp1_price, mark_price) and _is_more_protective_stop(side, tp1_price, desired_sl):
+                desired_sl = tp1_price
+
+        if remaining_qty <= 0:
+            state_store.clear_position(symbol)
+            return True
+
+    if tracked.get("trailing_active", False) and not tracked.get("tp2_hit", False):
+        trail_distance = _safe_float(tracked.get("trail_distance", 0.0))
+        if trail_distance > 0:
+            candidate_sl = mark_price - trail_distance if side == "BUY" else mark_price + trail_distance
+            be_floor = _safe_float(tracked.get("be_stop_price", tracked.get("entry_price", 0.0)))
+            if side == "BUY":
+                candidate_sl = max(candidate_sl, be_floor)
+            else:
+                candidate_sl = min(candidate_sl, be_floor)
+            if _is_valid_stop(side, candidate_sl, mark_price) and _is_more_protective_stop(side, candidate_sl, desired_sl):
+                desired_sl = candidate_sl
+
+    if tracked.get("tp2_hit", False):
+        tp1_price = _safe_float(tracked.get("tp1", 0.0))
+        if _is_valid_stop(side, tp1_price, mark_price) and _is_more_protective_stop(side, tp1_price, desired_sl):
+            desired_sl = tp1_price
+
+    sl_changed = abs(desired_sl - current_sl) > 1e-9
+    tp_changed = abs(desired_tp - current_tp) > 1e-9
+    if (sl_changed and _is_valid_stop(side, desired_sl, mark_price)) or tp_changed:
+        response = connector.modify_position_sltp(symbol=symbol, position=position, sl=desired_sl, tp=desired_tp)
+        tracked["sl"] = desired_sl
+        tracked["tp"] = desired_tp
+        logger.info(
+            "MT5 staged stop updated: side={} entry={} mark={} old_sl={} new_sl={} tp={} response={}",
+            side,
+            _safe_float(tracked.get("entry_price", 0.0)),
+            mark_price,
+            current_sl,
+            desired_sl,
+            desired_tp,
+            response,
+        )
+    else:
+        tracked["sl"] = current_sl
+        tracked["tp"] = current_tp
+
+    tracked["updated_at"] = latest_close_time
+    state_store.set_position(symbol, tracked)
+    return True
 
 
 def _prepare_strategy_signals(df, fast: int, slow: int, ema2: int, ema4: int, ema5: int):
@@ -238,6 +552,11 @@ def run_mt5_trade(
     trail_atr_period: int = 14,
     trail_atr_mult: float = 1.0,
     trail_min_step_atr: float = 0.2,
+    staged_exit_enabled: bool = MT5_STAGED_EXIT_ENABLED,
+    staged_be_trigger_pips: float = MT5_STAGED_BE_TRIGGER_PIPS,
+    staged_be_offset_pips: float = MT5_STAGED_BE_OFFSET_PIPS,
+    staged_trail_pips: float = MT5_STAGED_TRAIL_PIPS,
+    staged_tp4_open: bool = MT5_STAGED_TP4_OPEN,
     stop_pips: float = 0.7,
     magic: int | None = MT5_BASE_MAGIC,
     signal_debug: bool = False,
@@ -361,19 +680,33 @@ def run_mt5_trade(
 
     if position is not None:
         try:
-            _maybe_apply_trailing_stop(
+            if not _maybe_manage_staged_exit(
                 connector=connector,
                 state_store=state_store,
                 symbol=symbol,
                 position=position,
-                df=df,
                 tracked_position=tracked_position,
-                trailing_stop=trailing_stop,
-                trail_activate_r=trail_activate_r,
-                trail_atr_period=trail_atr_period,
-                trail_atr_mult=trail_atr_mult,
-                trail_min_step_atr=trail_min_step_atr,
-            )
+                pip_size=pip_size,
+                staged_exit_enabled=staged_exit_enabled,
+                staged_be_trigger_pips=staged_be_trigger_pips,
+                staged_be_offset_pips=staged_be_offset_pips,
+                staged_trail_pips=staged_trail_pips,
+                staged_tp4_open=staged_tp4_open,
+                latest_close_time=latest_close_time,
+            ):
+                _maybe_apply_trailing_stop(
+                    connector=connector,
+                    state_store=state_store,
+                    symbol=symbol,
+                    position=position,
+                    df=df,
+                    tracked_position=tracked_position,
+                    trailing_stop=trailing_stop,
+                    trail_activate_r=trail_activate_r,
+                    trail_atr_period=trail_atr_period,
+                    trail_atr_mult=trail_atr_mult,
+                    trail_min_step_atr=trail_min_step_atr,
+                )
         except Exception as exc:
             logger.warning("MT5 trailing stop update skipped for {}: {}", symbol, exc)
         logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
@@ -476,6 +809,31 @@ def run_mt5_trade(
         sl = entry_price + sl_distance
         tp = entry_price - tp_distance
 
+    position_state = {
+        "side": side,
+        "qty": volume,
+        "entry_price": entry_price,
+        "sl": sl,
+        "tp": tp,
+        "initial_r": abs(entry_price - sl),
+        "updated_at": latest_close_time,
+    }
+
+    if staged_exit_enabled:
+        position_state = _build_staged_position_state(
+            side=side,
+            entry_price=entry_price,
+            sl=sl,
+            qty=volume,
+            pip_size=pip_size,
+            staged_be_trigger_pips=staged_be_trigger_pips,
+            staged_be_offset_pips=staged_be_offset_pips,
+            staged_trail_pips=staged_trail_pips,
+            staged_tp4_open=staged_tp4_open,
+        )
+        position_state["updated_at"] = latest_close_time
+        tp = _safe_float(position_state.get("tp", tp), tp)
+
     response = connector.place_market_order(
         symbol=symbol,
         side=side,
@@ -484,18 +842,7 @@ def run_mt5_trade(
         tp=tp,
         comment="spec-ema-channel",
     )
-    state_store.set_position(
-        symbol,
-        {
-            "side": side,
-            "qty": volume,
-            "entry_price": entry_price,
-            "sl": sl,
-            "tp": tp,
-            "initial_r": abs(entry_price - sl),
-            "updated_at": latest_close_time,
-        },
-    )
+    state_store.set_position(symbol, position_state)
     risk_state["trades_today"] = int(risk_state.get("trades_today", 0)) + 1
     state_store.set_runtime_state("mt5_risk_state", risk_state)
     state_store.mark_signal_processed(symbol, signal_id, {"action": side.lower(), "qty": volume})

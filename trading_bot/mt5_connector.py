@@ -288,15 +288,24 @@ class MT5Connector:
             raise RuntimeError(f"MT5 order failed retcode={result.retcode}, comment={result.comment}")
         return {"retcode": int(result.retcode), "order": int(result.order), "deal": int(result.deal)}
 
-    def close_position(self, symbol: str, position: MT5Position, comment: str) -> dict[str, Any]:
+    def close_position(
+        self,
+        symbol: str,
+        position: MT5Position,
+        comment: str,
+        volume: float | None = None,
+    ) -> dict[str, Any]:
         close_side = "SELL" if position.side == "BUY" else "BUY"
         order_type = mt5.ORDER_TYPE_SELL if close_side == "SELL" else mt5.ORDER_TYPE_BUY
         price = self.get_symbol_price(symbol, side=close_side)
+        close_volume = float(position.volume if volume is None else volume)
+        if close_volume <= 0:
+            raise ValueError("MT5 close volume must be greater than zero")
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
             "position": position.ticket,
-            "volume": position.volume,
+            "volume": close_volume,
             "type": order_type,
             "price": price,
             "deviation": self.deviation,
@@ -310,7 +319,13 @@ class MT5Connector:
             raise RuntimeError(f"MT5 close order returned None: {mt5.last_error()}")
         if int(result.retcode) != int(mt5.TRADE_RETCODE_DONE):
             raise RuntimeError(f"MT5 close failed retcode={result.retcode}, comment={result.comment}")
-        logger.info("Closed MT5 position ticket={} symbol={} side={}", position.ticket, symbol, position.side)
+        logger.info(
+            "Closed MT5 position ticket={} symbol={} side={} volume={}",
+            position.ticket,
+            symbol,
+            position.side,
+            close_volume,
+        )
         return {"retcode": int(result.retcode), "order": int(result.order), "deal": int(result.deal)}
 
     def get_latest_closed_outcome(self, symbol: str, magic: Optional[int] = None, lookback_days: int = 7) -> Optional[MT5ClosedOutcome]:

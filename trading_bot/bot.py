@@ -33,7 +33,12 @@ from .config import (
     MT5_SL_ATR_MULT,
     MT5_SLIPPAGE,
     MT5_SL_PIPS,
+    MT5_STAGED_BE_OFFSET_PIPS,
+    MT5_STAGED_BE_TRIGGER_PIPS,
+    MT5_STAGED_EXIT_ENABLED,
     MT5_STATE_FILE,
+    MT5_STAGED_TP4_OPEN,
+    MT5_STAGED_TRAIL_PIPS,
     MT5_SYMBOL,
     MT5_TERMINAL_PATH,
     MT5_TRAILING_STOP_ENABLED,
@@ -181,6 +186,11 @@ def main():
     parser.add_argument("--trail-atr-period", type=int, default=MT5_TRAIL_ATR_PERIOD)
     parser.add_argument("--trail-atr-mult", type=float, default=MT5_TRAIL_ATR_MULT)
     parser.add_argument("--trail-min-step-atr", type=float, default=MT5_TRAIL_MIN_STEP_ATR)
+    parser.add_argument("--staged-exit", action=argparse.BooleanOptionalAction, default=MT5_STAGED_EXIT_ENABLED)
+    parser.add_argument("--staged-be-trigger-pips", type=float, default=MT5_STAGED_BE_TRIGGER_PIPS)
+    parser.add_argument("--staged-be-offset-pips", type=float, default=MT5_STAGED_BE_OFFSET_PIPS)
+    parser.add_argument("--staged-trail-pips", type=float, default=MT5_STAGED_TRAIL_PIPS)
+    parser.add_argument("--staged-tp4-open", action=argparse.BooleanOptionalAction, default=MT5_STAGED_TP4_OPEN)
     parser.add_argument("--slippage", type=int, default=MT5_SLIPPAGE)
     parser.add_argument("--auto-magic", action=argparse.BooleanOptionalAction, default=MT5_AUTO_MAGIC)
     parser.add_argument("--base-magic", type=int, default=MT5_BASE_MAGIC)
@@ -268,6 +278,11 @@ def main():
                 trail_atr_period=args.trail_atr_period,
                 trail_atr_mult=args.trail_atr_mult,
                 trail_min_step_atr=args.trail_min_step_atr,
+                staged_exit_enabled=args.staged_exit,
+                staged_be_trigger_pips=args.staged_be_trigger_pips,
+                staged_be_offset_pips=args.staged_be_offset_pips,
+                staged_trail_pips=args.staged_trail_pips,
+                staged_tp4_open=args.staged_tp4_open,
                 stop_pips=args.stop_pips,
                 magic=magic,
                 signal_debug=args.signal_debug,
