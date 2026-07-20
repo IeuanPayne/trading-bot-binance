@@ -67,6 +67,15 @@ MT5_USE_RISK_PCT = _as_bool(os.getenv("MT5_USE_RISK_PCT", "True"), default=True)
 MT5_RISK_PCT = _as_float(os.getenv("MT5_RISK_PCT"), default=1.0)
 MT5_SL_PIPS = _as_float(os.getenv("MT5_SL_PIPS"), default=70.0)
 MT5_TP_PIPS = _as_float(os.getenv("MT5_TP_PIPS"), default=70.0)
+MT5_DYNAMIC_SLTP = _as_bool(os.getenv("MT5_DYNAMIC_SLTP", "False"), default=False)
+MT5_ATR_PERIOD = _as_int(os.getenv("MT5_ATR_PERIOD"), default=14)
+MT5_SL_ATR_MULT = _as_float(os.getenv("MT5_SL_ATR_MULT"), default=1.5)
+MT5_TP_ATR_MULT = _as_float(os.getenv("MT5_TP_ATR_MULT"), default=2.0)
+MT5_TRAILING_STOP_ENABLED = _as_bool(os.getenv("MT5_TRAILING_STOP_ENABLED", "False"), default=False)
+MT5_TRAIL_ACTIVATE_R = _as_float(os.getenv("MT5_TRAIL_ACTIVATE_R"), default=1.0)
+MT5_TRAIL_ATR_PERIOD = _as_int(os.getenv("MT5_TRAIL_ATR_PERIOD"), default=14)
+MT5_TRAIL_ATR_MULT = _as_float(os.getenv("MT5_TRAIL_ATR_MULT"), default=1.0)
+MT5_TRAIL_MIN_STEP_ATR = _as_float(os.getenv("MT5_TRAIL_MIN_STEP_ATR"), default=0.2)
 MT5_SLIPPAGE = _as_int(os.getenv("MT5_SLIPPAGE"), default=30)
 MT5_AUTO_MAGIC = _as_bool(os.getenv("MT5_AUTO_MAGIC", "True"), default=True)
 MT5_BASE_MAGIC = _as_int(os.getenv("MT5_BASE_MAGIC"), default=20260629)
@@ -139,6 +148,20 @@ def validate_runtime_args(mode: str, order_pct: float, stop_pips: float) -> None
         raise ValueError("MT5_SL_PIPS must be > 0")
     if MT5_TP_PIPS <= 0:
         raise ValueError("MT5_TP_PIPS must be > 0")
+    if MT5_ATR_PERIOD <= 0:
+        raise ValueError("MT5_ATR_PERIOD must be > 0")
+    if MT5_SL_ATR_MULT <= 0:
+        raise ValueError("MT5_SL_ATR_MULT must be > 0")
+    if MT5_TP_ATR_MULT <= 0:
+        raise ValueError("MT5_TP_ATR_MULT must be > 0")
+    if MT5_TRAIL_ACTIVATE_R <= 0:
+        raise ValueError("MT5_TRAIL_ACTIVATE_R must be > 0")
+    if MT5_TRAIL_ATR_PERIOD <= 0:
+        raise ValueError("MT5_TRAIL_ATR_PERIOD must be > 0")
+    if MT5_TRAIL_ATR_MULT <= 0:
+        raise ValueError("MT5_TRAIL_ATR_MULT must be > 0")
+    if MT5_TRAIL_MIN_STEP_ATR < 0:
+        raise ValueError("MT5_TRAIL_MIN_STEP_ATR must be >= 0")
     if MT5_SLIPPAGE < 0:
         raise ValueError("MT5_SLIPPAGE must be >= 0")
     if TV_WEBHOOK_PORT <= 0 or TV_WEBHOOK_PORT > 65535:

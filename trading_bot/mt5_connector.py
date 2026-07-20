@@ -31,6 +31,8 @@ class MT5Position:
     volume: float
     price_open: float
     magic: int
+    sl: float = 0.0
+    tp: float = 0.0
 
 
 @dataclass
@@ -165,7 +167,26 @@ class MT5Connector:
             volume=float(pos.volume),
             price_open=float(pos.price_open),
             magic=int(getattr(pos, "magic", 0)),
+            sl=float(getattr(pos, "sl", 0.0) or 0.0),
+            tp=float(getattr(pos, "tp", 0.0) or 0.0),
         )
+
+    def modify_position_sltp(self, symbol: str, position: MT5Position, sl: float, tp: float | None = None) -> dict[str, Any]:
+        """Update SL/TP for an existing open position."""
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "symbol": symbol,
+            "position": position.ticket,
+            "sl": sl,
+            "tp": tp if tp is not None else position.tp,
+            "magic": self.magic,
+        }
+        result = mt5.order_send(request)
+        if result is None:
+            raise RuntimeError(f"MT5 SL/TP modify returned None: {mt5.last_error()}")
+        if int(result.retcode) != int(mt5.TRADE_RETCODE_DONE):
+            raise RuntimeError(f"MT5 SL/TP modify failed retcode={result.retcode}, comment={result.comment}")
+        return {"retcode": int(result.retcode), "order": int(result.order), "deal": int(result.deal)}
 
     def volume_from_risk_pips(self, symbol: str, risk_amount: float, sl_pips: float, pip_size: float) -> float:
         """Compute lot size from risk using broker economics for the symbol."""

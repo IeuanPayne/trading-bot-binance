@@ -103,6 +103,109 @@ def _prepare_strategy_signals(df, fast: int, slow: int, ema2: int, ema4: int, em
     )
 
 
+def _compute_atr_distance(df, period: int) -> float | None:
+    if period <= 0 or len(df) < period + 1:
+        return None
+
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    close = df["close"].astype(float)
+    prev_close = close.shift(1)
+
+    tr = (high - low).abs()
+    tr = tr.combine((high - prev_close).abs(), max)
+    tr = tr.combine((low - prev_close).abs(), max)
+
+    atr = tr.rolling(window=period, min_periods=period).mean().iloc[-1]
+    atr_value = _safe_float(atr, default=0.0)
+    if atr_value <= 0:
+        return None
+    return atr_value
+
+
+def _maybe_apply_trailing_stop(
+    connector: MT5Connector,
+    state_store: TradingStateStore,
+    symbol: str,
+    position,
+    df,
+    tracked_position: dict | None,
+    trailing_stop: bool,
+    trail_activate_r: float,
+    trail_atr_period: int,
+    trail_atr_mult: float,
+    trail_min_step_atr: float,
+) -> None:
+    if not trailing_stop:
+        return
+
+    tracked = tracked_position or {}
+    side = str(getattr(position, "side", tracked.get("side", ""))).upper()
+    entry_price = _safe_float(tracked.get("entry_price", getattr(position, "price_open", 0.0)))
+    initial_sl = _safe_float(tracked.get("sl", getattr(position, "sl", 0.0)))
+    current_sl = _safe_float(getattr(position, "sl", 0.0), default=initial_sl)
+    current_tp = _safe_float(getattr(position, "tp", tracked.get("tp", 0.0)))
+    initial_r = abs(entry_price - initial_sl)
+
+    if side not in ("BUY", "SELL") or entry_price <= 0 or initial_r <= 0:
+        return
+
+    mark_price = connector.get_symbol_price(symbol, side="SELL" if side == "BUY" else "BUY")
+    if mark_price <= 0:
+        return
+
+    favorable_move = mark_price - entry_price if side == "BUY" else entry_price - mark_price
+    if favorable_move < (trail_activate_r * initial_r):
+        return
+
+    atr_distance = _compute_atr_distance(df, trail_atr_period)
+    if atr_distance is None:
+        logger.warning(
+            "MT5 trailing stop active but ATR unavailable (period={} rows={}); skipping trail update.",
+            trail_atr_period,
+            len(df),
+        )
+        return
+
+    trail_offset = atr_distance * trail_atr_mult
+    if trail_offset <= 0:
+        return
+    min_step = max(0.0, atr_distance * trail_min_step_atr)
+
+    if side == "BUY":
+        candidate_sl = mark_price - trail_offset
+        # After activation, never allow trailing SL below break-even.
+        new_sl = max(candidate_sl, entry_price)
+        if new_sl <= current_sl or new_sl >= mark_price:
+            return
+        if min_step > 0 and (new_sl - current_sl) < min_step:
+            return
+    else:
+        candidate_sl = mark_price + trail_offset
+        # After activation, never allow trailing SL above break-even.
+        new_sl = min(candidate_sl, entry_price)
+        if new_sl >= current_sl or new_sl <= mark_price:
+            return
+        if min_step > 0 and (current_sl - new_sl) < min_step:
+            return
+
+    response = connector.modify_position_sltp(symbol=symbol, position=position, sl=new_sl, tp=current_tp)
+    tracked["sl"] = new_sl
+    tracked["updated_at"] = str(df.iloc[-1].get("close_time"))
+    if tracked:
+        state_store.set_position(symbol, tracked)
+    logger.info(
+        "MT5 trailing stop updated: side={} entry={} mark={} old_sl={} new_sl={} tp={} response={}",
+        side,
+        entry_price,
+        mark_price,
+        current_sl,
+        new_sl,
+        current_tp,
+        response,
+    )
+
+
 def run_mt5_trade(
     connector: MT5Connector,
     symbol: str,
@@ -126,6 +229,15 @@ def run_mt5_trade(
     risk_pct: float = 1.0,
     sl_pips: float | None = None,
     tp_pips: float | None = None,
+    dynamic_sltp: bool = False,
+    atr_period: int = 14,
+    sl_atr_mult: float = 1.5,
+    tp_atr_mult: float = 2.0,
+    trailing_stop: bool = False,
+    trail_activate_r: float = 1.0,
+    trail_atr_period: int = 14,
+    trail_atr_mult: float = 1.0,
+    trail_min_step_atr: float = 0.2,
     stop_pips: float = 0.7,
     magic: int | None = MT5_BASE_MAGIC,
     signal_debug: bool = False,
@@ -248,6 +360,22 @@ def run_mt5_trade(
         state_store.clear_position(symbol)
 
     if position is not None:
+        try:
+            _maybe_apply_trailing_stop(
+                connector=connector,
+                state_store=state_store,
+                symbol=symbol,
+                position=position,
+                df=df,
+                tracked_position=tracked_position,
+                trailing_stop=trailing_stop,
+                trail_activate_r=trail_activate_r,
+                trail_atr_period=trail_atr_period,
+                trail_atr_mult=trail_atr_mult,
+                trail_min_step_atr=trail_min_step_atr,
+            )
+        except Exception as exc:
+            logger.warning("MT5 trailing stop update skipped for {}: {}", symbol, exc)
         logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
         state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "position_open"})
         return
@@ -287,15 +415,42 @@ def run_mt5_trade(
     effective_sl_pips = sl_pips if sl_pips is not None else 0.0
     effective_tp_pips = tp_pips if tp_pips is not None else 0.0
 
-    if effective_sl_pips > 0:
-        sl_distance = effective_sl_pips * pip_size
-    else:
-        # Backward compatibility: legacy stop_pips is an absolute price distance.
-        sl_distance = stop_pips
-    if effective_tp_pips > 0:
-        tp_distance = effective_tp_pips * pip_size
-    else:
-        tp_distance = sl_distance
+    dynamic_applied = False
+    if dynamic_sltp:
+        atr_distance = _compute_atr_distance(df, atr_period)
+        if atr_distance is not None:
+            sl_distance = atr_distance * sl_atr_mult
+            tp_distance = atr_distance * tp_atr_mult
+            if pip_size > 0:
+                effective_sl_pips = sl_distance / pip_size
+                effective_tp_pips = tp_distance / pip_size
+            dynamic_applied = True
+            logger.info(
+                "MT5 dynamic SL/TP: atr={} period={} sl_atr_mult={} tp_atr_mult={} sl_distance={} tp_distance={}",
+                atr_distance,
+                atr_period,
+                sl_atr_mult,
+                tp_atr_mult,
+                sl_distance,
+                tp_distance,
+            )
+        else:
+            logger.warning(
+                "MT5 dynamic SL/TP enabled but ATR unavailable (period={} rows={}); falling back to configured pips.",
+                atr_period,
+                len(df),
+            )
+
+    if not dynamic_applied:
+        if effective_sl_pips > 0:
+            sl_distance = effective_sl_pips * pip_size
+        else:
+            # Backward compatibility: legacy stop_pips is an absolute price distance.
+            sl_distance = stop_pips
+        if effective_tp_pips > 0:
+            tp_distance = effective_tp_pips * pip_size
+        else:
+            tp_distance = sl_distance
 
     if use_risk_pct and effective_sl_pips > 0:
         risk_amount = balance * (risk_pct / 100.0)
@@ -335,6 +490,9 @@ def run_mt5_trade(
             "side": side,
             "qty": volume,
             "entry_price": entry_price,
+            "sl": sl,
+            "tp": tp,
+            "initial_r": abs(entry_price - sl),
             "updated_at": latest_close_time,
         },
     )

@@ -23,16 +23,25 @@ from .config import (
     MODELED_SPREAD_PIPS,
     MT5_AUTO_MAGIC,
     MT5_BASE_MAGIC,
+    MT5_DYNAMIC_SLTP,
     MT5_LOGIN,
     MT5_PASSWORD,
+    MT5_ATR_PERIOD,
     MT5_RISK_PCT,
     MT5_SIGNAL_DEBUG,
     MT5_SERVER,
+    MT5_SL_ATR_MULT,
     MT5_SLIPPAGE,
     MT5_SL_PIPS,
     MT5_STATE_FILE,
     MT5_SYMBOL,
     MT5_TERMINAL_PATH,
+    MT5_TRAILING_STOP_ENABLED,
+    MT5_TRAIL_ACTIVATE_R,
+    MT5_TRAIL_ATR_MULT,
+    MT5_TRAIL_MIN_STEP_ATR,
+    MT5_TRAIL_ATR_PERIOD,
+    MT5_TP_ATR_MULT,
     MT5_TP_PIPS,
     MT5_USE_RISK_PCT,
     NEWYORK_END,
@@ -163,6 +172,15 @@ def main():
     parser.add_argument("--risk-pct", type=float, default=MT5_RISK_PCT)
     parser.add_argument("--sl-pips", type=float, default=MT5_SL_PIPS)
     parser.add_argument("--tp-pips", type=float, default=MT5_TP_PIPS)
+    parser.add_argument("--dynamic-sltp", action=argparse.BooleanOptionalAction, default=MT5_DYNAMIC_SLTP)
+    parser.add_argument("--atr-period", type=int, default=MT5_ATR_PERIOD)
+    parser.add_argument("--sl-atr-mult", type=float, default=MT5_SL_ATR_MULT)
+    parser.add_argument("--tp-atr-mult", type=float, default=MT5_TP_ATR_MULT)
+    parser.add_argument("--trailing-stop", action=argparse.BooleanOptionalAction, default=MT5_TRAILING_STOP_ENABLED)
+    parser.add_argument("--trail-activate-r", type=float, default=MT5_TRAIL_ACTIVATE_R)
+    parser.add_argument("--trail-atr-period", type=int, default=MT5_TRAIL_ATR_PERIOD)
+    parser.add_argument("--trail-atr-mult", type=float, default=MT5_TRAIL_ATR_MULT)
+    parser.add_argument("--trail-min-step-atr", type=float, default=MT5_TRAIL_MIN_STEP_ATR)
     parser.add_argument("--slippage", type=int, default=MT5_SLIPPAGE)
     parser.add_argument("--auto-magic", action=argparse.BooleanOptionalAction, default=MT5_AUTO_MAGIC)
     parser.add_argument("--base-magic", type=int, default=MT5_BASE_MAGIC)
@@ -241,6 +259,15 @@ def main():
                 risk_pct=args.risk_pct,
                 sl_pips=args.sl_pips,
                 tp_pips=args.tp_pips,
+                dynamic_sltp=args.dynamic_sltp,
+                atr_period=args.atr_period,
+                sl_atr_mult=args.sl_atr_mult,
+                tp_atr_mult=args.tp_atr_mult,
+                trailing_stop=args.trailing_stop,
+                trail_activate_r=args.trail_activate_r,
+                trail_atr_period=args.trail_atr_period,
+                trail_atr_mult=args.trail_atr_mult,
+                trail_min_step_atr=args.trail_min_step_atr,
                 stop_pips=args.stop_pips,
                 magic=magic,
                 signal_debug=args.signal_debug,

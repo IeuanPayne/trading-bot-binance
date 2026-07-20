@@ -14,13 +14,17 @@ class _FakePosition:
     side: str
     volume: float
     price_open: float
+    sl: float = 0.0
+    tp: float = 0.0
 
 
 class FakeMT5Connector:
     def __init__(self):
         self.market_orders = []
         self.closed = []
+        self.sltp_updates = []
         self.position = None
+        self.risk_calls = []
 
     def fetch_rates(self, symbol: str, interval: str = "15m", limit: int = 500):
         rows = max(limit, 2)
@@ -61,6 +65,7 @@ class FakeMT5Connector:
         assert risk_amount > 0
         assert sl_pips > 0
         assert pip_size > 0
+        self.risk_calls.append({"symbol": symbol, "risk_amount": risk_amount, "sl_pips": sl_pips, "pip_size": pip_size})
         return 0.01
 
     def place_market_order(self, symbol: str, side: str, volume: float, sl: float, tp: float, comment: str):
@@ -82,6 +87,10 @@ class FakeMT5Connector:
     def close_position(self, symbol: str, position, comment: str):
         self.closed.append({"symbol": symbol, "ticket": position.ticket, "comment": comment})
         return {"retcode": 0, "order": 3, "deal": 4}
+
+    def modify_position_sltp(self, symbol: str, position, sl: float, tp: float | None = None):
+        self.sltp_updates.append({"symbol": symbol, "ticket": position.ticket, "sl": sl, "tp": tp})
+        return {"retcode": 0, "order": 5, "deal": 6}
 
 
 def test_mt5_trade_marks_signal_and_skips_duplicate(monkeypatch, tmp_path):
@@ -178,3 +187,104 @@ def test_mt5_trade_skips_wide_spread(monkeypatch, tmp_path):
     run_mt5_trade(connector=connector, symbol="BTCUSD", limit=10, state_file=state_file)
 
     assert len(connector.market_orders) == 0
+
+
+def test_mt5_trade_dynamic_sltp_uses_atr_distance(monkeypatch, tmp_path):
+    connector = FakeMT5Connector()
+
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, include_state=False):
+        signals = df.copy()
+        signals["long_signal"] = [False] * (len(df) - 1) + [True]
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_channel_signals", fake_signals)
+
+    state_file = str(tmp_path / "mt5_state.db")
+    run_mt5_trade(
+        connector=connector,
+        symbol="BTCUSD",
+        limit=20,
+        state_file=state_file,
+        dynamic_sltp=True,
+        atr_period=14,
+        sl_atr_mult=1.0,
+        tp_atr_mult=2.0,
+        pip_size=0.10,
+    )
+
+    assert len(connector.market_orders) == 1
+    order = connector.market_orders[0]
+    # Fake data in this file yields ATR ~= 2.0, entry=100.0.
+    assert order["sl"] == 98.0
+    assert order["tp"] == 104.0
+    assert len(connector.risk_calls) == 1
+    assert connector.risk_calls[0]["sl_pips"] == 20.0
+
+
+def test_mt5_trade_trailing_stop_updates_sl_after_activation(monkeypatch, tmp_path):
+    connector = FakeMT5Connector()
+    connector.position = _FakePosition(ticket=42, side="BUY", volume=0.01, price_open=100.0, sl=95.0, tp=110.0)
+
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, include_state=False):
+        signals = df.copy()
+        signals["long_signal"] = [False] * len(df)
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_channel_signals", fake_signals)
+    monkeypatch.setattr(connector, "get_symbol_price", lambda symbol, side="BUY": 108.0 if side == "SELL" else 108.1)
+
+    state_file = str(tmp_path / "mt5_state.db")
+    store = TradingStateStore(state_file)
+    store.set_position("BTCUSD", {"side": "BUY", "qty": 0.01, "entry_price": 100.0, "sl": 95.0, "tp": 110.0})
+
+    run_mt5_trade(
+        connector=connector,
+        symbol="BTCUSD",
+        limit=20,
+        state_file=state_file,
+        trailing_stop=True,
+        trail_activate_r=1.0,
+        trail_atr_period=14,
+        trail_atr_mult=1.0,
+    )
+
+    assert len(connector.sltp_updates) == 1
+    assert connector.sltp_updates[0]["sl"] == 106.0
+    updated = store.get_position("BTCUSD")
+    assert updated is not None
+    assert updated["sl"] == 106.0
+
+
+def test_mt5_trade_trailing_stop_respects_min_step(monkeypatch, tmp_path):
+    connector = FakeMT5Connector()
+    connector.position = _FakePosition(ticket=42, side="BUY", volume=0.01, price_open=100.0, sl=106.0, tp=110.0)
+
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, include_state=False):
+        signals = df.copy()
+        signals["long_signal"] = [False] * len(df)
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_channel_signals", fake_signals)
+    # mark for BUY uses SELL quote in trailing logic
+    monkeypatch.setattr(connector, "get_symbol_price", lambda symbol, side="BUY": 108.4 if side == "SELL" else 108.5)
+
+    state_file = str(tmp_path / "mt5_state.db")
+    store = TradingStateStore(state_file)
+    store.set_position("BTCUSD", {"side": "BUY", "qty": 0.01, "entry_price": 100.0, "sl": 95.0, "tp": 110.0})
+
+    run_mt5_trade(
+        connector=connector,
+        symbol="BTCUSD",
+        limit=20,
+        state_file=state_file,
+        trailing_stop=True,
+        trail_activate_r=1.0,
+        trail_atr_period=14,
+        trail_atr_mult=1.0,
+        trail_min_step_atr=0.5,
+    )
+
+    assert len(connector.sltp_updates) == 0
