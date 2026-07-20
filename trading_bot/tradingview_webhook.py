@@ -38,6 +38,13 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _normalize_side(raw: Any) -> str:
     value = str(raw or "").strip().lower()
     if value in {"buy", "long"}:
@@ -228,7 +235,7 @@ def process_tradingview_signal(
                 "signal_id": signal["signal_id"],
             }
         )
-        tp = float(position_state.get("tp", tp))
+        tp = _safe_float(position_state.get("tp", tp), default=tp)
 
     response = connector.place_market_order(
         symbol=symbol,
