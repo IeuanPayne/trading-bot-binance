@@ -168,6 +168,44 @@ Notes:
 - Allowed symbols/timeframes can be restricted via `TV_ALLOWED_SYMBOLS` and `TV_ALLOWED_TIMEFRAMES`.
 - Orders are placed through the same MT5 risk, SL/TP, and magic settings you already use.
 
+### 6c. Windows VPS Scheduler (Weekend Reboot + Auto Bot Start)
+
+This repo includes ready-to-import Task Scheduler templates for Windows VPS:
+
+- Startup bot task: `scripts/windows/tv_webhook_startup_task.xml`
+- Weekend reboot task: `scripts/windows/weekend_reboot_task.xml`
+- Startup wrapper script: `scripts/windows/run_tv_webhook_bot.ps1`
+
+Before importing tasks:
+
+- Edit both XML files and replace `YOUR_WINDOWS_USERNAME`.
+- Update `C:\\trading-bot-binance` paths if your repo is elsewhere.
+- Ensure `.env` is configured (MT5 + webhook secret).
+
+Import commands (PowerShell as Administrator):
+
+```powershell
+schtasks /create /tn "TradingBot-TVWebhook-Startup" /xml "C:\Users\Administrator\code\trading-bot-binance\scripts\windows\tv_webhook_startup_task.xml" /f
+schtasks /create /tn "TradingBot-Weekend-Reboot" /xml "C:\Users\Administrator\code\trading-bot-binance\scripts\windows\weekend_reboot_task.xml" /f
+```
+
+Verify:
+
+```powershell
+schtasks /query /tn "TradingBot-TVWebhook-Startup" /v /fo list
+schtasks /query /tn "TradingBot-Weekend-Reboot" /v /fo list
+```
+
+Run startup task once for smoke test:
+
+```powershell
+schtasks /run /tn "TradingBot-TVWebhook-Startup"
+```
+
+Wrapper logs:
+
+- `logs/tv_webhook_wrapper.log`
+
 ### 7. Windows VPS Auto-Start (Task Scheduler)
 
 This repo includes a wrapper and task template:
