@@ -18,8 +18,8 @@
   </Triggers>
   <Principals>
     <Principal id="Author">
-      <UserId>Administrator</UserId>
-      <LogonType>Password</LogonType>
+      <UserId>SYSTEM</UserId>
+      <LogonType>ServiceAccount</LogonType>
       <RunLevel>HighestAvailable</RunLevel>
     </Principal>
   </Principals>
