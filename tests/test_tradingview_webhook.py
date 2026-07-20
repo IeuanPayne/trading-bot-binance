@@ -6,6 +6,7 @@ from trading_bot.tradingview_webhook import (
     WebhookTradeSettings,
     process_tradingview_signal,
     validate_and_normalize_alert,
+    _is_sdk_web_language_probe,
 )
 
 
@@ -176,3 +177,9 @@ def test_process_tradingview_signal_stores_staged_exit_state(tmp_path):
     assert position["tp4"] == 170.0
     assert position["moved_to_be"] is False
     assert position["trailing_active"] is False
+
+
+def test_is_sdk_web_language_probe_matches_expected_path():
+    assert _is_sdk_web_language_probe("/SDK/webLanguage") is True
+    assert _is_sdk_web_language_probe("/SDK/webLanguage/") is True
+    assert _is_sdk_web_language_probe("/SDK/other") is False

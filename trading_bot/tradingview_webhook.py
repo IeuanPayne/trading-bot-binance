@@ -45,6 +45,11 @@ def _normalize_side(raw: Any) -> str:
     raise ValueError("side must be one of: buy, sell, long, short")
 
 
+def _is_sdk_web_language_probe(path: str) -> bool:
+    normalized = path.rstrip("/")
+    return normalized == "/SDK/webLanguage"
+
+
 def validate_and_normalize_alert(
     payload: dict[str, Any],
     secret: str,
@@ -232,6 +237,12 @@ def start_tradingview_webhook_server(
     normalized_path = path if path.startswith("/") else f"/{path}"
 
     class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            if _is_sdk_web_language_probe(self.path):
+                self._send_json(200, {"language": "en"})
+                return
+            self._send_json(404, {"error": "not_found"})
+
         def do_POST(self) -> None:  # noqa: N802
             if self.path.rstrip("/") != normalized_path.rstrip("/"):
                 self._send_json(404, {"error": "not_found"})
