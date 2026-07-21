@@ -520,6 +520,155 @@ def _maybe_apply_trailing_stop(
     )
 
 
+def _manage_existing_mt5_position(
+    connector: MT5Connector,
+    state_store: TradingStateStore,
+    symbol: str,
+    position,
+    tracked_position: dict | None,
+    df,
+    latest_close_time: str,
+    pip_size: float,
+    trailing_stop: bool,
+    trail_activate_r: float,
+    trail_atr_period: int,
+    trail_atr_mult: float,
+    trail_min_step_atr: float,
+    staged_exit_enabled: bool,
+    staged_be_trigger_pips: float,
+    staged_be_offset_pips: float,
+    staged_trail_pips: float,
+    staged_tp4_open: bool,
+    magic: int | None,
+) -> bool:
+    if position is None and tracked_position:
+        outcome = None
+        outcome_fetcher = getattr(connector, "get_latest_closed_outcome", None)
+        if callable(outcome_fetcher):
+            try:
+                outcome = outcome_fetcher(symbol=symbol, magic=magic)
+            except Exception as exc:
+                logger.warning("Unable to fetch MT5 closed outcome for {}: {}", symbol, exc)
+
+        entry_price = _safe_float(tracked_position.get("entry_price", 0.0))
+        qty = _safe_float(tracked_position.get("qty", 0.0))
+        side = str(tracked_position.get("side", "")).upper() or "UNKNOWN"
+        exit_price = _safe_float((outcome.exit_price if outcome else 0.0), 0.0)
+        if exit_price <= 0:
+            exit_price = _safe_float(df.iloc[-1].get("close", 0.0), 0.0)
+
+        if entry_price > 0 and qty > 0 and exit_price > 0:
+            if side == "BUY":
+                estimated_pnl = (exit_price - entry_price) * qty
+            else:
+                estimated_pnl = (entry_price - exit_price) * qty
+            realized_pnl = float(outcome.pnl) if outcome else estimated_pnl
+            result = "WIN" if realized_pnl > 0 else "LOSS" if realized_pnl < 0 else "FLAT"
+            logger.info(
+                "MT5 trade outcome: result={} side={} qty={} entry={} exit={} pnl={} closed_at={} reason={}",
+                result,
+                side,
+                qty,
+                entry_price,
+                exit_price,
+                realized_pnl,
+                outcome.close_time if outcome else latest_close_time,
+                outcome.reason if outcome else "state_reconcile",
+            )
+            _record_exit_risk_metrics(state_store, symbol, exit_price)
+        state_store.clear_position(symbol)
+        return False
+
+    if position is None:
+        return False
+
+    try:
+        if not _maybe_manage_staged_exit(
+            connector=connector,
+            state_store=state_store,
+            symbol=symbol,
+            position=position,
+            tracked_position=tracked_position,
+            pip_size=pip_size,
+            staged_exit_enabled=staged_exit_enabled,
+            staged_be_trigger_pips=staged_be_trigger_pips,
+            staged_be_offset_pips=staged_be_offset_pips,
+            staged_trail_pips=staged_trail_pips,
+            staged_tp4_open=staged_tp4_open,
+            latest_close_time=latest_close_time,
+        ):
+            _maybe_apply_trailing_stop(
+                connector=connector,
+                state_store=state_store,
+                symbol=symbol,
+                position=position,
+                df=df,
+                tracked_position=tracked_position,
+                trailing_stop=trailing_stop,
+                trail_activate_r=trail_activate_r,
+                trail_atr_period=trail_atr_period,
+                trail_atr_mult=trail_atr_mult,
+                trail_min_step_atr=trail_min_step_atr,
+            )
+    except Exception as exc:
+        logger.warning("MT5 trailing stop update skipped for {}: {}", symbol, exc)
+
+    logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
+    return True
+
+
+def manage_mt5_position_cycle(
+    connector: MT5Connector,
+    symbol: str,
+    interval: str = "15m",
+    limit: int = 500,
+    pip_size: float = PIP_SIZE,
+    trailing_stop: bool = False,
+    trail_activate_r: float = 1.0,
+    trail_atr_period: int = 14,
+    trail_atr_mult: float = 1.0,
+    trail_min_step_atr: float = 0.2,
+    staged_exit_enabled: bool = MT5_STAGED_EXIT_ENABLED,
+    staged_be_trigger_pips: float = MT5_STAGED_BE_TRIGGER_PIPS,
+    staged_be_offset_pips: float = MT5_STAGED_BE_OFFSET_PIPS,
+    staged_trail_pips: float = MT5_STAGED_TRAIL_PIPS,
+    staged_tp4_open: bool = MT5_STAGED_TP4_OPEN,
+    magic: int | None = MT5_BASE_MAGIC,
+    state_file: str = "mt5_trading_state.db",
+) -> bool:
+    state_store = TradingStateStore(state_file)
+    df = connector.fetch_rates(symbol, interval=interval, limit=limit)
+    if df.empty:
+        logger.error("No MT5 candle data available for {} during position management", symbol)
+        return False
+
+    tracked_position = state_store.get_position(symbol)
+    position = connector.get_net_position(symbol, magic=magic)
+    latest_close_time = str(df.iloc[-1].get("close_time"))
+
+    return _manage_existing_mt5_position(
+        connector=connector,
+        state_store=state_store,
+        symbol=symbol,
+        position=position,
+        tracked_position=tracked_position,
+        df=df,
+        latest_close_time=latest_close_time,
+        pip_size=pip_size,
+        trailing_stop=trailing_stop,
+        trail_activate_r=trail_activate_r,
+        trail_atr_period=trail_atr_period,
+        trail_atr_mult=trail_atr_mult,
+        trail_min_step_atr=trail_min_step_atr,
+        staged_exit_enabled=staged_exit_enabled,
+        staged_be_trigger_pips=staged_be_trigger_pips,
+        staged_be_offset_pips=staged_be_offset_pips,
+        staged_trail_pips=staged_trail_pips,
+        staged_tp4_open=staged_tp4_open,
+        magic=magic,
+    )
+
+
 def run_mt5_trade(
     connector: MT5Connector,
     symbol: str,
@@ -641,75 +790,27 @@ def run_mt5_trade(
 
     tracked_position = state_store.get_position(symbol)
     position = connector.get_net_position(symbol, magic=magic)
-    if position is None and tracked_position:
-        outcome = None
-        outcome_fetcher = getattr(connector, "get_latest_closed_outcome", None)
-        if callable(outcome_fetcher):
-            try:
-                outcome = outcome_fetcher(symbol=symbol, magic=magic)
-            except Exception as exc:
-                logger.warning("Unable to fetch MT5 closed outcome for {}: {}", symbol, exc)
-
-        entry_price = _safe_float(tracked_position.get("entry_price", 0.0))
-        qty = _safe_float(tracked_position.get("qty", 0.0))
-        side = str(tracked_position.get("side", "")).upper() or "UNKNOWN"
-        exit_price = _safe_float((outcome.exit_price if outcome else 0.0), 0.0)
-        if exit_price <= 0:
-            exit_price = _safe_float(latest.get("close", 0.0), 0.0)
-
-        if entry_price > 0 and qty > 0 and exit_price > 0:
-            if side == "BUY":
-                estimated_pnl = (exit_price - entry_price) * qty
-            else:
-                estimated_pnl = (entry_price - exit_price) * qty
-            realized_pnl = float(outcome.pnl) if outcome else estimated_pnl
-            result = "WIN" if realized_pnl > 0 else "LOSS" if realized_pnl < 0 else "FLAT"
-            logger.info(
-                "MT5 trade outcome: result={} side={} qty={} entry={} exit={} pnl={} closed_at={} reason={}",
-                result,
-                side,
-                qty,
-                entry_price,
-                exit_price,
-                realized_pnl,
-                outcome.close_time if outcome else latest_close_time,
-                outcome.reason if outcome else "state_reconcile",
-            )
-            _record_exit_risk_metrics(state_store, symbol, exit_price)
-        state_store.clear_position(symbol)
-
-    if position is not None:
-        try:
-            if not _maybe_manage_staged_exit(
-                connector=connector,
-                state_store=state_store,
-                symbol=symbol,
-                position=position,
-                tracked_position=tracked_position,
-                pip_size=pip_size,
-                staged_exit_enabled=staged_exit_enabled,
-                staged_be_trigger_pips=staged_be_trigger_pips,
-                staged_be_offset_pips=staged_be_offset_pips,
-                staged_trail_pips=staged_trail_pips,
-                staged_tp4_open=staged_tp4_open,
-                latest_close_time=latest_close_time,
-            ):
-                _maybe_apply_trailing_stop(
-                    connector=connector,
-                    state_store=state_store,
-                    symbol=symbol,
-                    position=position,
-                    df=df,
-                    tracked_position=tracked_position,
-                    trailing_stop=trailing_stop,
-                    trail_activate_r=trail_activate_r,
-                    trail_atr_period=trail_atr_period,
-                    trail_atr_mult=trail_atr_mult,
-                    trail_min_step_atr=trail_min_step_atr,
-                )
-        except Exception as exc:
-            logger.warning("MT5 trailing stop update skipped for {}: {}", symbol, exc)
-        logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
+    if _manage_existing_mt5_position(
+        connector=connector,
+        state_store=state_store,
+        symbol=symbol,
+        position=position,
+        tracked_position=tracked_position,
+        df=df,
+        latest_close_time=latest_close_time,
+        pip_size=pip_size,
+        trailing_stop=trailing_stop,
+        trail_activate_r=trail_activate_r,
+        trail_atr_period=trail_atr_period,
+        trail_atr_mult=trail_atr_mult,
+        trail_min_step_atr=trail_min_step_atr,
+        staged_exit_enabled=staged_exit_enabled,
+        staged_be_trigger_pips=staged_be_trigger_pips,
+        staged_be_offset_pips=staged_be_offset_pips,
+        staged_trail_pips=staged_trail_pips,
+        staged_tp4_open=staged_tp4_open,
+        magic=magic,
+    ):
         state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "position_open"})
         return
 

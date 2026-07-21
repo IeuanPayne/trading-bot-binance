@@ -6,11 +6,13 @@ from trading_bot.tradingview_webhook import (
     WebhookTradeSettings,
     _is_source_ip_allowed,
     _parse_allowed_source_ips,
+    _run_position_management_pass,
     _should_suppress_probe_log,
     process_tradingview_signal,
     validate_and_normalize_alert,
     _is_sdk_web_language_probe,
 )
+from trading_bot.state_store import TradingStateStore
 
 
 @dataclass
@@ -58,6 +60,12 @@ class _FakeConnector:
             }
         )
         return {"retcode": 10009, "order": 1, "deal": 2}
+
+    def connect(self):
+        return None
+
+    def shutdown(self):
+        return None
 
 
 def _settings(state_file: str) -> WebhookTradeSettings:
@@ -168,8 +176,6 @@ def test_process_tradingview_signal_stores_staged_exit_state(tmp_path):
     assert result["status"] == "filled"
     assert len(connector.orders) == 1
 
-    from trading_bot.state_store import TradingStateStore
-
     store = TradingStateStore(str(tmp_path / "tv_state.db"))
     position = store.get_position("XAUUSD")
     assert position is not None
@@ -208,3 +214,23 @@ def test_parse_allowed_source_ips_invalid_value_raises():
         assert False, "expected parse failure"
     except ValueError:
         assert True
+
+
+def test_run_position_management_pass_manages_tracked_positions(monkeypatch, tmp_path):
+    settings = _staged_settings(str(tmp_path / "tv_state.db"))
+    store = TradingStateStore(settings.state_file)
+    store.set_position("XAUUSD", {"side": "SELL", "qty": 0.01, "entry_price": 100.0, "sl": 107.0, "tp": 93.0})
+
+    managed_symbols = []
+
+    def fake_manage_mt5_position_cycle(**kwargs):
+        managed_symbols.append(kwargs["symbol"])
+        return True
+
+    monkeypatch.setattr("trading_bot.tradingview_webhook.manage_mt5_position_cycle", fake_manage_mt5_position_cycle)
+
+    connector = _FakeConnector()
+    managed_count = _run_position_management_pass(connector_factory=lambda: connector, settings=settings)
+
+    assert managed_count == 1
+    assert managed_symbols == ["XAUUSD"]

@@ -329,6 +329,13 @@ def main():
             staged_be_offset_pips=args.tv_staged_be_offset_pips,
             staged_trail_pips=args.tv_staged_trail_pips,
             staged_tp4_open=args.tv_staged_tp4_open,
+            trailing_stop=args.trailing_stop,
+            trail_activate_r=args.trail_activate_r,
+            trail_atr_period=args.trail_atr_period,
+            trail_atr_mult=args.trail_atr_mult,
+            trail_min_step_atr=args.trail_min_step_atr,
+            management_interval=args.interval,
+            management_limit=args.limit,
         )
         start_tradingview_webhook_server(
             host=args.tv_host,

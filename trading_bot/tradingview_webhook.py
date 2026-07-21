@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import ipaddress
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,7 +12,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from .mt5_execution import _build_staged_position_state
+from .mt5_execution import _build_staged_position_state, manage_mt5_position_cycle
 from .mt5_connector import MT5Connector
 from .state_store import TradingStateStore
 
@@ -32,6 +34,14 @@ class WebhookTradeSettings:
     staged_be_offset_pips: float = 5.0
     staged_trail_pips: float = 50.0
     staged_tp4_open: bool = False
+    trailing_stop: bool = False
+    trail_activate_r: float = 1.0
+    trail_atr_period: int = 14
+    trail_atr_mult: float = 1.0
+    trail_min_step_atr: float = 0.2
+    management_interval: str = "15m"
+    management_limit: int = 500
+    management_poll_seconds: float = 5.0
 
 
 def _utc_now_iso() -> str:
@@ -273,6 +283,44 @@ def process_tradingview_signal(
     }
 
 
+def _run_position_management_pass(
+    connector_factory: Callable[[], MT5Connector],
+    settings: WebhookTradeSettings,
+) -> int:
+    state_store = TradingStateStore(settings.state_file)
+    positions = (state_store.load().get("positions") or {}).keys()
+    managed_count = 0
+
+    for symbol in positions:
+        connector = connector_factory()
+        connector.connect()
+        try:
+            manage_mt5_position_cycle(
+                connector=connector,
+                symbol=symbol,
+                interval=settings.management_interval,
+                limit=settings.management_limit,
+                pip_size=settings.pip_size,
+                trailing_stop=settings.trailing_stop,
+                trail_activate_r=settings.trail_activate_r,
+                trail_atr_period=settings.trail_atr_period,
+                trail_atr_mult=settings.trail_atr_mult,
+                trail_min_step_atr=settings.trail_min_step_atr,
+                staged_exit_enabled=settings.staged_exit_enabled,
+                staged_be_trigger_pips=settings.staged_be_trigger_pips,
+                staged_be_offset_pips=settings.staged_be_offset_pips,
+                staged_trail_pips=settings.staged_trail_pips,
+                staged_tp4_open=settings.staged_tp4_open,
+                magic=settings.magic,
+                state_file=settings.state_file,
+            )
+            managed_count += 1
+        finally:
+            connector.shutdown()
+
+    return managed_count
+
+
 def start_tradingview_webhook_server(
     host: str,
     port: int,
@@ -286,6 +334,17 @@ def start_tradingview_webhook_server(
 ) -> None:
     normalized_path = path if path.startswith("/") else f"/{path}"
     allowed_networks = _parse_allowed_source_ips(allowed_source_ips)
+
+    def _management_loop() -> None:
+        poll_seconds = max(1.0, settings.management_poll_seconds)
+        while True:
+            try:
+                managed_count = _run_position_management_pass(connector_factory=connector_factory, settings=settings)
+                if managed_count > 0:
+                    logger.debug("TVWebhook manager pass complete: managed_positions={}", managed_count)
+            except Exception as exc:
+                logger.warning("TVWebhook manager loop failed: {}", exc)
+            time.sleep(poll_seconds)
 
     class _WebhookHTTPServer(ThreadingHTTPServer):
         def handle_error(self, request, client_address) -> None:  # type: ignore[override]
@@ -395,6 +454,9 @@ def start_tradingview_webhook_server(
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
             self.wfile.write(raw)
+
+    manager_thread = threading.Thread(target=_management_loop, name="tv-webhook-position-manager", daemon=True)
+    manager_thread.start()
 
     server = _WebhookHTTPServer((host, port), _Handler)
     logger.info("TradingView webhook server listening on http://{}:{}{}", host, port, normalized_path)
