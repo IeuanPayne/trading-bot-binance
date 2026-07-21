@@ -12,6 +12,10 @@ ema4Len = input.int(34, "EMA 4 Length")
 ema5Len = input.int(55, "EMA 5 Length")
 signalMode = input.string("EMA Touch", "Signal Mode", options=["EMA Touch", "Continuation"])
 touchEmaSource = input.string("EMA3", "Touch EMA", options=["EMA1", "EMA2", "EMA3", "EMA4", "EMA5"])
+touchTrendLookback = input.int(3, "Touch Trend Lookback", minval=1)
+maxTouchDistancePct = input.float(0.12, "Max Close Distance To Touch EMA (%)", minval=0.0, step=0.01)
+maxChannelWidthPct = input.float(0.35, "Max EMA Channel Width (%)", minval=0.0, step=0.01)
+rearmAwayDistancePct = input.float(0.20, "Rearm Distance From Touch EMA (%)", minval=0.0, step=0.01)
 
 lineColor = input.color(color.white, "Line Color")
 showFill = input.bool(true, "Show Fill")
@@ -32,10 +36,17 @@ touchEma = touchEmaSource == "EMA1" ? ema1 : touchEmaSource == "EMA2" ? ema2 : t
 
 bullStack = ema1 > ema2 and ema2 > ema3 and ema3 > ema4 and ema4 > ema5
 bearStack = ema1 < ema2 and ema2 < ema3 and ema3 < ema4 and ema4 < ema5
+touchSlopeUp = touchEma > nz(touchEma[touchTrendLookback], touchEma)
+touchSlopeDown = touchEma < nz(touchEma[touchTrendLookback], touchEma)
+touchDistancePct = touchEma != 0 ? math.abs(close - touchEma) / touchEma * 100 : 0.0
+channelWidthPct = touchEma != 0 ? (chTop - chBot) / touchEma * 100 : 0.0
+touchZoneOk = touchDistancePct <= maxTouchDistancePct and channelWidthPct <= maxChannelWidthPct
 
 // State machine
 var string trend = "NONE"
 var string entryState = "IDLE"
+var bool longTouchArmed = true
+var bool shortTouchArmed = true
 
 longSignal = false
 shortSignal = false
@@ -48,12 +59,19 @@ confirmDown = false
 
 if barstate.isconfirmed
     if signalMode == "EMA Touch"
-        touchedEma = low <= touchEma and high >= touchEma
-        if touchedEma
-            if close > touchEma
+        movedAwayFromTouchEma = touchDistancePct >= rearmAwayDistancePct
+        if movedAwayFromTouchEma
+            longTouchArmed := true
+            shortTouchArmed := true
+
+        bodyTouchEma = math.min(open, close) <= touchEma and math.max(open, close) >= touchEma
+        if bodyTouchEma and touchZoneOk
+            if bullStack and touchSlopeUp and close > touchEma and longTouchArmed
                 longSignal := true
-            else if close < touchEma
+                longTouchArmed := false
+            else if bearStack and touchSlopeDown and close < touchEma and shortTouchArmed
                 shortSignal := true
+                shortTouchArmed := false
     else
         breakoutUp := bullStack and close > chTop
         breakoutDown := bearStack and close < chBot
