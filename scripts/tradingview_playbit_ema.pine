@@ -19,8 +19,11 @@ rearmAwayDistancePct = input.float(0.20, "Rearm Distance From Touch EMA (%)", mi
 anchorEmaLen = input.int(200, "Anchor EMA Length", minval=1)
 showAnchorBand = input.bool(true, "Show Anchor EMA Band")
 showBaseEmaChannel = input.bool(false, "Show Base EMA Channel")
-anchorHighColor = input.color(color.new(color.lime, 0), "Anchor High Color")
-anchorCloseColor = input.color(color.new(color.green, 0), "Anchor Close Color")
+anchorColorMode = input.string("Price Relative", "Anchor Color Mode", options=["Fixed", "Slope", "Price Relative"])
+anchorHighColor = input.color(color.new(color.lime, 0), "Anchor Bull High Color")
+anchorCloseColor = input.color(color.new(color.green, 0), "Anchor Bull Close Color")
+anchorBearHighColor = input.color(color.new(color.red, 0), "Anchor Bear High Color")
+anchorBearCloseColor = input.color(color.new(color.maroon, 0), "Anchor Bear Close Color")
 anchorLineWidth = input.int(3, "Anchor Line Width", minval=1, maxval=5)
 anchorFillTransparency = input.int(20, "Anchor Fill Transparency", minval=0, maxval=100)
 
@@ -62,6 +65,10 @@ touchSlopeDown = touchEma < nz(touchEma[touchTrendLookback], touchEma)
 touchDistancePct = touchEma != 0 ? math.abs(close - touchEma) / touchEma * 100 : 0.0
 channelWidthPct = touchEma != 0 ? (chTop - chBot) / touchEma * 100 : 0.0
 touchZoneOk = touchDistancePct <= maxTouchDistancePct and channelWidthPct <= maxChannelWidthPct
+anchorSlopeUp = anchorClose >= nz(anchorClose[1], anchorClose)
+anchorBull = anchorColorMode == "Fixed" ? true : anchorColorMode == "Slope" ? anchorSlopeUp : close >= anchorClose
+activeAnchorHighColor = anchorBull ? anchorHighColor : anchorBearHighColor
+activeAnchorCloseColor = anchorBull ? anchorCloseColor : anchorBearCloseColor
 
 // State machine
 var string trend = "NONE"
@@ -134,12 +141,12 @@ p2 = plot(showBaseEmaChannel ? ema2 : na, color=lineColor, title="EMA2")
 p3 = plot(showBaseEmaChannel ? ema3 : na, color=lineColor, title="EMA3")
 p4 = plot(showBaseEmaChannel ? ema4 : na, color=lineColor, title="EMA4")
 p5 = plot(showBaseEmaChannel ? ema5 : na, color=lineColor, title="EMA5")
-pAnchorHigh = plot(showAnchorBand ? anchorHigh : na, color=anchorHighColor, linewidth=anchorLineWidth, title="Anchor High EMA")
-pAnchorClose = plot(showAnchorBand ? anchorClose : na, color=anchorCloseColor, linewidth=anchorLineWidth, title="Anchor Close EMA")
+pAnchorHigh = plot(showAnchorBand ? anchorHigh : na, color=activeAnchorHighColor, linewidth=anchorLineWidth, title="Anchor High EMA")
+pAnchorClose = plot(showAnchorBand ? anchorClose : na, color=activeAnchorCloseColor, linewidth=anchorLineWidth, title="Anchor Close EMA")
 
 fillColor = showFill ? (close < chBot ? color.new(color.red, 67) : close > chTop ? color.new(color.lime, 67) : fillColorInput) : na
 fill(p1, p5, color=showBaseEmaChannel ? fillColor : na, fillgaps=true)
-fill(pAnchorHigh, pAnchorClose, color=showAnchorBand ? color.new(anchorCloseColor, anchorFillTransparency) : na, fillgaps=true)
+fill(pAnchorHigh, pAnchorClose, color=showAnchorBand ? color.new(activeAnchorCloseColor, anchorFillTransparency) : na, fillgaps=true)
 
 // Visual markers
 plotshape(longSignal, title="Long Signal", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny, text="LONG")
