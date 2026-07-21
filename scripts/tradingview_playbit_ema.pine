@@ -11,11 +11,15 @@ ema3Len = input.int(21, "EMA 3 Length")
 ema4Len = input.int(34, "EMA 4 Length")
 ema5Len = input.int(55, "EMA 5 Length")
 signalMode = input.string("EMA Touch", "Signal Mode", options=["EMA Touch", "Continuation"])
-touchEmaSource = input.string("EMA3", "Touch EMA", options=["EMA1", "EMA2", "EMA3", "EMA4", "EMA5"])
+touchEmaSource = input.string("EMA3", "Touch EMA", options=["EMA1", "EMA2", "EMA3", "EMA4", "EMA5", "Anchor High", "Anchor Close"])
 touchTrendLookback = input.int(3, "Touch Trend Lookback", minval=1)
 maxTouchDistancePct = input.float(0.03, "Max Close Distance To Touch EMA (%)", minval=0.0, step=0.01)
 maxChannelWidthPct = input.float(0.20, "Max EMA Channel Width (%)", minval=0.0, step=0.01)
 rearmAwayDistancePct = input.float(0.20, "Rearm Distance From Touch EMA (%)", minval=0.0, step=0.01)
+anchorEmaLen = input.int(200, "Anchor EMA Length", minval=1)
+showAnchorBand = input.bool(true, "Show Anchor EMA Band")
+anchorHighColor = input.color(color.new(color.lime, 0), "Anchor High Color")
+anchorCloseColor = input.color(color.new(color.green, 0), "Anchor Close Color")
 
 lineColor = input.color(color.white, "Line Color")
 showFill = input.bool(true, "Show Fill")
@@ -27,12 +31,19 @@ ema2 = ta.ema(close, ema2Len)
 ema3 = ta.ema(close, ema3Len)
 ema4 = ta.ema(close, ema4Len)
 ema5 = ta.ema(close, ema5Len)
+anchorHigh = ta.ema(high, anchorEmaLen)
+anchorClose = ta.ema(close, anchorEmaLen)
 
 // Channel boundaries
 chTop = math.max(ema1, math.max(ema2, math.max(ema3, math.max(ema4, ema5))))
 chBot = math.min(ema1, math.min(ema2, math.min(ema3, math.min(ema4, ema5))))
 
-touchEma = touchEmaSource == "EMA1" ? ema1 : touchEmaSource == "EMA2" ? ema2 : touchEmaSource == "EMA3" ? ema3 : touchEmaSource == "EMA4" ? ema4 : ema5
+touchEma = touchEmaSource == "EMA1" ? ema1 :
+    touchEmaSource == "EMA2" ? ema2 :
+    touchEmaSource == "EMA3" ? ema3 :
+    touchEmaSource == "EMA4" ? ema4 :
+    touchEmaSource == "EMA5" ? ema5 :
+    touchEmaSource == "Anchor High" ? anchorHigh : anchorClose
 
 bullStack = ema1 > ema2 and ema2 > ema3 and ema3 > ema4 and ema4 > ema5
 bearStack = ema1 < ema2 and ema2 < ema3 and ema3 < ema4 and ema4 < ema5
@@ -113,9 +124,12 @@ p2 = plot(ema2, color=lineColor, title="EMA2")
 p3 = plot(ema3, color=lineColor, title="EMA3")
 p4 = plot(ema4, color=lineColor, title="EMA4")
 p5 = plot(ema5, color=lineColor, title="EMA5")
+pAnchorHigh = plot(showAnchorBand ? anchorHigh : na, color=anchorHighColor, title="Anchor High EMA")
+pAnchorClose = plot(showAnchorBand ? anchorClose : na, color=anchorCloseColor, title="Anchor Close EMA")
 
 fillColor = showFill ? (close < chBot ? color.new(color.red, 67) : close > chTop ? color.new(color.lime, 67) : fillColorInput) : na
 fill(p1, p5, color=fillColor, fillgaps=true)
+fill(pAnchorHigh, pAnchorClose, color=showAnchorBand ? color.new(anchorCloseColor, 80) : na, fillgaps=true)
 
 // Visual markers
 plotshape(longSignal, title="Long Signal", style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny, text="LONG")
