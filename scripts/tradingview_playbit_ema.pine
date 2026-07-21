@@ -10,6 +10,8 @@ ema2Len = input.int(13, "EMA 2 Length")
 ema3Len = input.int(21, "EMA 3 Length")
 ema4Len = input.int(34, "EMA 4 Length")
 ema5Len = input.int(55, "EMA 5 Length")
+signalMode = input.string("EMA Touch", "Signal Mode", options=["EMA Touch", "Continuation"])
+touchEmaSource = input.string("EMA3", "Touch EMA", options=["EMA1", "EMA2", "EMA3", "EMA4", "EMA5"])
 
 lineColor = input.color(color.white, "Line Color")
 showFill = input.bool(true, "Show Fill")
@@ -25,6 +27,8 @@ ema5 = ta.ema(close, ema5Len)
 // Channel boundaries
 chTop = math.max(ema1, math.max(ema2, math.max(ema3, math.max(ema4, ema5))))
 chBot = math.min(ema1, math.min(ema2, math.min(ema3, math.min(ema4, ema5))))
+
+touchEma = touchEmaSource == "EMA1" ? ema1 : touchEmaSource == "EMA2" ? ema2 : touchEmaSource == "EMA3" ? ema3 : touchEmaSource == "EMA4" ? ema4 : ema5
 
 bullStack = ema1 > ema2 and ema2 > ema3 and ema3 > ema4 and ema4 > ema5
 bearStack = ema1 < ema2 and ema2 < ema3 and ema3 < ema4 and ema4 < ema5
@@ -43,39 +47,47 @@ confirmUp = false
 confirmDown = false
 
 if barstate.isconfirmed
-    breakoutUp := bullStack and close > chTop
-    breakoutDown := bearStack and close < chBot
+    if signalMode == "EMA Touch"
+        touchedEma = low <= touchEma and high >= touchEma
+        if touchedEma
+            if close > touchEma
+                longSignal := true
+            else if close < touchEma
+                shortSignal := true
+    else
+        breakoutUp := bullStack and close > chTop
+        breakoutDown := bearStack and close < chBot
 
-    retestUp := trend == "UP" and low <= chTop and close >= chBot
-    retestDown := trend == "DOWN" and high >= chBot and close <= chTop
+        retestUp := trend == "UP" and low <= chTop and close >= chBot
+        retestDown := trend == "DOWN" and high >= chBot and close <= chTop
 
-    confirmUp := trend == "UP" and close > chTop
-    confirmDown := trend == "DOWN" and close < chBot
+        confirmUp := trend == "UP" and close > chTop
+        confirmDown := trend == "DOWN" and close < chBot
 
-    if entryState == "IDLE"
-        if breakoutUp
-            trend := "UP"
-            entryState := "WAIT_RETEST"
-        else if breakoutDown
-            trend := "DOWN"
-            entryState := "WAIT_RETEST"
+        if entryState == "IDLE"
+            if breakoutUp
+                trend := "UP"
+                entryState := "WAIT_RETEST"
+            else if breakoutDown
+                trend := "DOWN"
+                entryState := "WAIT_RETEST"
 
-    else if entryState == "WAIT_RETEST"
-        if retestUp or retestDown
-            entryState := "WAIT_CONFIRM"
+        else if entryState == "WAIT_RETEST"
+            if retestUp or retestDown
+                entryState := "WAIT_CONFIRM"
 
-        if (trend == "UP" and bearStack) or (trend == "DOWN" and bullStack)
+            if (trend == "UP" and bearStack) or (trend == "DOWN" and bullStack)
+                trend := "NONE"
+                entryState := "IDLE"
+
+        else if entryState == "WAIT_CONFIRM"
+            if confirmUp
+                longSignal := true
+            else if confirmDown
+                shortSignal := true
+
             trend := "NONE"
             entryState := "IDLE"
-
-    else if entryState == "WAIT_CONFIRM"
-        if confirmUp
-            longSignal := true
-        else if confirmDown
-            shortSignal := true
-
-        trend := "NONE"
-        entryState := "IDLE"
 
 // Plots
 p1 = plot(ema1, color=lineColor, title="EMA1")
