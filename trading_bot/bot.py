@@ -83,6 +83,54 @@ def _effective_magic(interval: str, base_magic: int, auto_magic: bool) -> int:
     return base_magic + _INTERVAL_TO_PERIOD.get(interval, 0)
 
 
+def _mask_secret(value: str) -> str:
+    raw = str(value or "")
+    if not raw:
+        return "<empty>"
+    if len(raw) <= 8:
+        return "*" * len(raw)
+    return f"{raw[:4]}...{raw[-4:]}"
+
+
+def _log_tv_webhook_startup_config(args: argparse.Namespace, settings: WebhookTradeSettings) -> None:
+    allowed_timeframes = [item.strip() for item in str(args.tv_allowed_timeframes).split(",") if item.strip()]
+    allowed_source_ips = [item.strip() for item in str(args.tv_allowed_source_ips).split(",") if item.strip()]
+
+    logger.info(
+        "TVWebhook startup config: host={} port={} path={} symbol_allowlist={} timeframe_allowlist={} source_ip_allowlist={}",
+        args.tv_host,
+        args.tv_port,
+        args.tv_path,
+        list(TV_ALLOWED_SYMBOLS),
+        allowed_timeframes,
+        allowed_source_ips,
+    )
+    logger.info(
+        "TVWebhook trading config: interval_default={} limit={} max_spread_pips={} pip_size={} use_risk_pct={} risk_pct={} sl_pips={} tp_pips={} staged_exit={} trailing_stop={} base_magic={} auto_magic={} effective_magic_default={}",
+        args.interval,
+        args.limit,
+        args.max_spread_pips,
+        args.pip_size,
+        args.use_risk_pct,
+        args.risk_pct,
+        args.sl_pips,
+        args.tp_pips,
+        args.tv_staged_exit,
+        args.trailing_stop,
+        args.base_magic,
+        args.auto_magic,
+        settings.magic,
+    )
+    logger.info(
+        "TVWebhook state config: state_file={} secret={} mt5_login={} mt5_server={} mt5_symbol={}",
+        args.state_file,
+        _mask_secret(str(args.tv_secret)),
+        str(MT5_LOGIN or "<empty>"),
+        str(MT5_SERVER or "<empty>"),
+        str(MT5_SYMBOL or args.symbol),
+    )
+
+
 def run_backtest(
     symbol: str,
     interval: str = "15m",
@@ -340,6 +388,9 @@ def main():
             management_interval=args.interval,
             management_limit=args.limit,
         )
+
+        _log_tv_webhook_startup_config(args, settings)
+
         start_tradingview_webhook_server(
             host=args.tv_host,
             port=args.tv_port,
