@@ -166,3 +166,34 @@ def test_bot_main_passes_modeled_spread_to_paper(monkeypatch):
     main()
 
     assert received["modeled_spread_pips"] == 2.5
+
+
+def test_bot_main_tv_webhook_passes_allowed_timeframes(monkeypatch):
+    args = [
+        "trading_bot.bot",
+        "--mode",
+        "tv-webhook",
+        "--tv-secret",
+        "test-secret",
+        "--tv-allowed-timeframes",
+        "5m,15m",
+    ]
+    monkeypatch.setattr("sys.argv", args)
+
+    monkeypatch.setattr("trading_bot.bot.MT5_LOGIN", "123456")
+    monkeypatch.setattr("trading_bot.bot.MT5_PASSWORD", "pass")
+    monkeypatch.setattr("trading_bot.bot.MT5_SERVER", "server")
+    monkeypatch.setattr("trading_bot.bot.validate_runtime_args", lambda mode, order_pct, stop_pips: None)
+
+    captured: dict[str, object] = {}
+
+    def fake_start_server(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("trading_bot.bot.start_tradingview_webhook_server", fake_start_server)
+    main()
+
+    assert captured["allowed_timeframes"] == ["5m", "15m"]
+    settings = captured["settings"]
+    assert getattr(settings, "auto_magic") is True
+    assert getattr(settings, "base_magic") == 20260629

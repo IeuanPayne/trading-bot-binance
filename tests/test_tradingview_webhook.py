@@ -24,8 +24,10 @@ class _FakeConnector:
     def __init__(self):
         self.orders = []
         self.position = None
+        self.net_position_magic_calls = []
 
     def get_net_position(self, symbol: str, magic: int | None = None):
+        self.net_position_magic_calls.append(magic)
         return self.position
 
     def get_spread_pips(self, symbol: str, pip_size: float = 0.10) -> float:
@@ -188,6 +190,30 @@ def test_process_tradingview_signal_stores_staged_exit_state(tmp_path):
     assert position["trailing_active"] is False
 
 
+def test_process_tradingview_signal_stores_timeframe_magic_for_5m(tmp_path):
+    connector = _FakeConnector()
+    settings = _settings(str(tmp_path / "tv_state.db"))
+    signal = {
+        "signal_id": "tf5m001",
+        "strategy_id": "playbit",
+        "symbol": "XAUUSD",
+        "timeframe": "5m",
+        "side": "BUY",
+        "timestamp": "2026-07-16T10:35:00Z",
+    }
+
+    result = process_tradingview_signal(connector, signal, settings)
+
+    assert result["status"] == "filled"
+    assert connector.net_position_magic_calls == [None]
+
+    store = TradingStateStore(str(tmp_path / "tv_state.db"))
+    position = store.get_position("XAUUSD")
+    assert position is not None
+    assert position["timeframe"] == "5m"
+    assert position["magic"] == 20260634
+
+
 def test_is_sdk_web_language_probe_matches_expected_path():
     assert _is_sdk_web_language_probe("/SDK/webLanguage") is True
     assert _is_sdk_web_language_probe("/SDK/webLanguage/") is True
@@ -219,12 +245,23 @@ def test_parse_allowed_source_ips_invalid_value_raises():
 def test_run_position_management_pass_manages_tracked_positions(monkeypatch, tmp_path):
     settings = _staged_settings(str(tmp_path / "tv_state.db"))
     store = TradingStateStore(settings.state_file)
-    store.set_position("XAUUSD", {"side": "SELL", "qty": 0.01, "entry_price": 100.0, "sl": 107.0, "tp": 93.0})
+    store.set_position(
+        "XAUUSD",
+        {
+            "side": "SELL",
+            "qty": 0.01,
+            "entry_price": 100.0,
+            "sl": 107.0,
+            "tp": 93.0,
+            "timeframe": "5m",
+            "magic": 20260634,
+        },
+    )
 
-    managed_symbols = []
+    managed_calls = []
 
     def fake_manage_mt5_position_cycle(**kwargs):
-        managed_symbols.append(kwargs["symbol"])
+        managed_calls.append((kwargs["symbol"], kwargs["interval"], kwargs["magic"]))
         return True
 
     monkeypatch.setattr("trading_bot.tradingview_webhook.manage_mt5_position_cycle", fake_manage_mt5_position_cycle)
@@ -233,4 +270,4 @@ def test_run_position_management_pass_manages_tracked_positions(monkeypatch, tmp
     managed_count = _run_position_management_pass(connector_factory=lambda: connector, settings=settings)
 
     assert managed_count == 1
-    assert managed_symbols == ["XAUUSD"]
+    assert managed_calls == [("XAUUSD", "5m", 20260634)]

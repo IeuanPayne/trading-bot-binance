@@ -17,6 +17,17 @@ from .mt5_connector import MT5Connector
 from .state_store import TradingStateStore
 
 
+_INTERVAL_TO_PERIOD = {
+    "1m": 1,
+    "5m": 5,
+    "15m": 15,
+    "30m": 30,
+    "1h": 60,
+    "4h": 240,
+    "1d": 1440,
+}
+
+
 @dataclass
 class WebhookTradeSettings:
     state_file: str
@@ -29,6 +40,8 @@ class WebhookTradeSettings:
     tp_pips: float
     stop_pips: float
     magic: int
+    base_magic: int = 20260629
+    auto_magic: bool = True
     staged_exit_enabled: bool = False
     staged_be_trigger_pips: float = 30.0
     staged_be_offset_pips: float = 5.0
@@ -42,6 +55,12 @@ class WebhookTradeSettings:
     management_interval: str = "15m"
     management_limit: int = 500
     management_poll_seconds: float = 5.0
+
+
+def _effective_magic_for_interval(interval: str, settings: WebhookTradeSettings) -> int:
+    if not settings.auto_magic:
+        return settings.base_magic
+    return settings.base_magic + _INTERVAL_TO_PERIOD.get(str(interval).lower(), 0)
 
 
 def _utc_now_iso() -> str:
@@ -165,12 +184,15 @@ def process_tradingview_signal(
     state_store = TradingStateStore(settings.state_file)
     symbol = signal["symbol"]
     side = signal["side"]
+    timeframe = str(signal.get("timeframe") or settings.management_interval).lower()
+    signal_magic = _effective_magic_for_interval(timeframe, settings)
     signal_key = f"tv:{signal['signal_id']}"
 
     if state_store.is_signal_processed(symbol, signal_key):
         return {"status": "duplicate", "signal_id": signal["signal_id"]}
 
-    position = connector.get_net_position(symbol, magic=settings.magic)
+    # Block if any net position is already open for this symbol.
+    position = connector.get_net_position(symbol, magic=None)
     if position is not None:
         state_store.mark_signal_processed(symbol, signal_key, {"action": "skipped", "reason": "position_open"})
         return {"status": "skipped", "reason": "position_open", "signal_id": signal["signal_id"]}
@@ -221,6 +243,8 @@ def process_tradingview_signal(
         "entry_price": entry_price,
         "sl": sl,
         "tp": tp,
+        "timeframe": timeframe,
+        "magic": signal_magic,
         "updated_at": signal["timestamp"],
         "source": "tradingview",
         "signal_id": signal["signal_id"],
@@ -253,7 +277,7 @@ def process_tradingview_signal(
         volume=volume,
         sl=sl,
         tp=tp,
-        comment=f"tv-{signal['strategy_id']}",
+        comment=f"tv-{signal['strategy_id']}-{timeframe}",
     )
 
     state_store.set_position(symbol, position_state)
@@ -292,13 +316,17 @@ def _run_position_management_pass(
     managed_count = 0
 
     for symbol in positions:
+        tracked = state_store.get_position(symbol) or {}
+        tracked_timeframe = str(tracked.get("timeframe") or settings.management_interval).lower()
+        tracked_magic = int(tracked.get("magic") or _effective_magic_for_interval(tracked_timeframe, settings))
+
         connector = connector_factory()
         connector.connect()
         try:
             manage_mt5_position_cycle(
                 connector=connector,
                 symbol=symbol,
-                interval=settings.management_interval,
+                interval=tracked_timeframe,
                 limit=settings.management_limit,
                 pip_size=settings.pip_size,
                 trailing_stop=settings.trailing_stop,
@@ -311,7 +339,7 @@ def _run_position_management_pass(
                 staged_be_offset_pips=settings.staged_be_offset_pips,
                 staged_trail_pips=settings.staged_trail_pips,
                 staged_tp4_open=settings.staged_tp4_open,
-                magic=settings.magic,
+                magic=tracked_magic,
                 state_file=settings.state_file,
             )
             managed_count += 1

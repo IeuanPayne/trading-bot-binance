@@ -203,6 +203,7 @@ def main():
     parser.add_argument("--tv-port", type=int, default=TV_WEBHOOK_PORT)
     parser.add_argument("--tv-path", default=TV_WEBHOOK_PATH)
     parser.add_argument("--tv-secret", default=TV_WEBHOOK_SECRET)
+    parser.add_argument("--tv-allowed-timeframes", default=",".join(TV_ALLOWED_TIMEFRAMES))
     parser.add_argument("--tv-allowed-source-ips", default=",".join(TV_ALLOWED_SOURCE_IPS))
     parser.add_argument("--tv-staged-exit", action=argparse.BooleanOptionalAction, default=MT5_STAGED_EXIT_ENABLED)
     parser.add_argument("--tv-staged-be-trigger-pips", type=float, default=MT5_STAGED_BE_TRIGGER_PIPS)
@@ -324,6 +325,8 @@ def main():
             tp_pips=args.tp_pips,
             stop_pips=args.stop_pips,
             magic=magic,
+            base_magic=args.base_magic,
+            auto_magic=args.auto_magic,
             staged_exit_enabled=args.tv_staged_exit,
             staged_be_trigger_pips=args.tv_staged_be_trigger_pips,
             staged_be_offset_pips=args.tv_staged_be_offset_pips,
@@ -345,7 +348,7 @@ def main():
             connector_factory=_connector_factory,
             settings=settings,
             allowed_symbols=TV_ALLOWED_SYMBOLS,
-            allowed_timeframes=TV_ALLOWED_TIMEFRAMES,
+            allowed_timeframes=[item.strip() for item in str(args.tv_allowed_timeframes).split(",") if item.strip()],
             allowed_source_ips=[item.strip() for item in str(args.tv_allowed_source_ips).split(",") if item.strip()],
         )
     elif args.mode == "grid-backtest":
