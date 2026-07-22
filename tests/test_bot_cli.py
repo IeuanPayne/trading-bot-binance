@@ -197,3 +197,31 @@ def test_bot_main_tv_webhook_passes_allowed_timeframes(monkeypatch):
     settings = captured["settings"]
     assert getattr(settings, "auto_magic") is True
     assert getattr(settings, "base_magic") == 20260629
+
+
+def test_bot_main_tv_webhook_passes_allow_multiple_positions(monkeypatch):
+    args = [
+        "trading_bot.bot",
+        "--mode",
+        "tv-webhook",
+        "--tv-secret",
+        "test-secret",
+        "--allow-multiple-positions",
+    ]
+    monkeypatch.setattr("sys.argv", args)
+
+    monkeypatch.setattr("trading_bot.bot.MT5_LOGIN", "123456")
+    monkeypatch.setattr("trading_bot.bot.MT5_PASSWORD", "pass")
+    monkeypatch.setattr("trading_bot.bot.MT5_SERVER", "server")
+    monkeypatch.setattr("trading_bot.bot.validate_runtime_args", lambda mode, order_pct, stop_pips: None)
+
+    captured: dict[str, object] = {}
+
+    def fake_start_server(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("trading_bot.bot.start_tradingview_webhook_server", fake_start_server)
+    main()
+
+    settings = captured["settings"]
+    assert getattr(settings, "allow_multiple_positions") is True

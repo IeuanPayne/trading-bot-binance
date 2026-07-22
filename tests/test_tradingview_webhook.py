@@ -161,6 +161,26 @@ def test_process_tradingview_signal_skips_when_position_open(tmp_path):
     assert len(connector.orders) == 0
 
 
+def test_process_tradingview_signal_allows_entry_when_position_open_if_enabled(tmp_path):
+    connector = _FakeConnector()
+    connector.position = _FakePosition(side="BUY")
+    settings = _settings(str(tmp_path / "tv_state.db"))
+    settings.allow_multiple_positions = True
+    signal = {
+        "signal_id": "multi001",
+        "strategy_id": "playbit",
+        "symbol": "XAUUSD",
+        "timeframe": "15m",
+        "side": "SELL",
+        "timestamp": "2026-07-16T10:16:00Z",
+    }
+
+    result = process_tradingview_signal(connector, signal, settings)
+
+    assert result["status"] == "filled"
+    assert len(connector.orders) == 1
+
+
 def test_process_tradingview_signal_stores_staged_exit_state(tmp_path):
     connector = _FakeConnector()
     settings = _staged_settings(str(tmp_path / "tv_state.db"))

@@ -60,6 +60,8 @@ anchorSlopeUp = anchorClose >= nz(anchorClose[1], anchorClose)
 anchorBull = anchorColorMode == "Fixed" ? true : anchorColorMode == "Slope" ? anchorSlopeUp : close >= anchorClose
 activeAnchorHighColor = anchorBull ? anchorHighColor : anchorBearHighColor
 activeAnchorCloseColor = anchorBull ? anchorCloseColor : anchorBearCloseColor
+anchorBandTop = math.max(anchorHigh, anchorClose)
+anchorBandBottom = math.min(anchorHigh, anchorClose)
 
 // State machine
 var string trend = "NONE"
@@ -76,11 +78,13 @@ confirmDown = false
 
 if barstate.isconfirmed
     if signalMode == "EMA Touch"
-        touchedEma = low <= touchEma and high >= touchEma
+        useAnchorBandTouch = touchEmaSource == "Anchor High" or touchEmaSource == "Anchor Close"
+        touchedEma = useAnchorBandTouch ? (low <= anchorBandTop and high >= anchorBandBottom) : (low <= touchEma and high >= touchEma)
+        referenceLine = useAnchorBandTouch ? anchorClose : touchEma
         if touchedEma
-            if close > touchEma
+            if close > referenceLine
                 longSignal := true
-            else if close < touchEma
+            else if close < referenceLine
                 shortSignal := true
     else
         breakoutUp := bullStack and close > chTop

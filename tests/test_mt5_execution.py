@@ -181,6 +181,34 @@ def test_mt5_trade_does_not_flip_existing_position(monkeypatch, tmp_path):
     assert len(connector.market_orders) == 0
 
 
+def test_mt5_trade_allows_entry_with_existing_position_when_enabled(monkeypatch, tmp_path):
+    connector = FakeMT5Connector()
+    connector.position = _FakePosition(ticket=42, side="BUY", volume=0.01, price_open=100.0)
+
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, include_state=False):
+        signals = df.copy()
+        signals["long_signal"] = [False] * len(df)
+        signals["short_signal"] = [False] * (len(df) - 1) + [True]
+        return signals
+
+    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_channel_signals", fake_signals)
+
+    state_file = str(tmp_path / "mt5_state.db")
+    store = TradingStateStore(state_file)
+    store.set_position("BTCUSD", {"side": "BUY", "qty": 0.01, "entry_price": 100.0})
+
+    run_mt5_trade(
+        connector=connector,
+        symbol="BTCUSD",
+        limit=10,
+        state_file=state_file,
+        allow_multiple_positions=True,
+    )
+
+    assert len(connector.closed) == 0
+    assert len(connector.market_orders) == 1
+
+
 def test_mt5_trade_skips_wide_spread(monkeypatch, tmp_path):
     connector = FakeMT5Connector()
     connector.get_spread_pips = lambda symbol, pip_size=0.10: 4.0

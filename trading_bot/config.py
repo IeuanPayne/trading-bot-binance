@@ -84,6 +84,7 @@ MT5_STAGED_TP4_OPEN = _as_bool(os.getenv("MT5_STAGED_TP4_OPEN", "False"), defaul
 MT5_SLIPPAGE = _as_int(os.getenv("MT5_SLIPPAGE"), default=30)
 MT5_AUTO_MAGIC = _as_bool(os.getenv("MT5_AUTO_MAGIC", "True"), default=True)
 MT5_BASE_MAGIC = _as_int(os.getenv("MT5_BASE_MAGIC"), default=20260629)
+MT5_ALLOW_MULTIPLE_POSITIONS = _as_bool(os.getenv("MT5_ALLOW_MULTIPLE_POSITIONS", "False"), default=False)
 MT5_SIGNAL_DEBUG = _as_bool(os.getenv("MT5_SIGNAL_DEBUG", "False"), default=False)
 TV_WEBHOOK_HOST = os.getenv("TV_WEBHOOK_HOST", "0.0.0.0")
 TV_WEBHOOK_PORT = _as_int(os.getenv("TV_WEBHOOK_PORT"), default=8080)

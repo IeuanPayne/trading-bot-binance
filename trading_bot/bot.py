@@ -27,6 +27,7 @@ from .config import (
     MT5_LOGIN,
     MT5_PASSWORD,
     MT5_ATR_PERIOD,
+    MT5_ALLOW_MULTIPLE_POSITIONS,
     MT5_RISK_PCT,
     MT5_SIGNAL_DEBUG,
     MT5_SERVER,
@@ -106,7 +107,7 @@ def _log_tv_webhook_startup_config(args: argparse.Namespace, settings: WebhookTr
         allowed_source_ips,
     )
     logger.info(
-        "TVWebhook trading config: interval_default={} limit={} max_spread_pips={} pip_size={} use_risk_pct={} risk_pct={} sl_pips={} tp_pips={} staged_exit={} trailing_stop={} base_magic={} auto_magic={} effective_magic_default={}",
+        "TVWebhook trading config: interval_default={} limit={} max_spread_pips={} pip_size={} use_risk_pct={} risk_pct={} sl_pips={} tp_pips={} staged_exit={} trailing_stop={} allow_multiple_positions={} base_magic={} auto_magic={} effective_magic_default={}",
         args.interval,
         args.limit,
         args.max_spread_pips,
@@ -117,6 +118,7 @@ def _log_tv_webhook_startup_config(args: argparse.Namespace, settings: WebhookTr
         args.tp_pips,
         args.tv_staged_exit,
         args.trailing_stop,
+        args.allow_multiple_positions,
         args.base_magic,
         args.auto_magic,
         settings.magic,
@@ -243,6 +245,11 @@ def main():
     parser.add_argument("--slippage", type=int, default=MT5_SLIPPAGE)
     parser.add_argument("--auto-magic", action=argparse.BooleanOptionalAction, default=MT5_AUTO_MAGIC)
     parser.add_argument("--base-magic", type=int, default=MT5_BASE_MAGIC)
+    parser.add_argument(
+        "--allow-multiple-positions",
+        action=argparse.BooleanOptionalAction,
+        default=MT5_ALLOW_MULTIPLE_POSITIONS,
+    )
     parser.add_argument("--signal-debug", action=argparse.BooleanOptionalAction, default=MT5_SIGNAL_DEBUG)
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--disable-oco", action="store_true")
@@ -341,6 +348,7 @@ def main():
                 staged_tp4_open=args.staged_tp4_open,
                 stop_pips=args.stop_pips,
                 magic=magic,
+                allow_multiple_positions=args.allow_multiple_positions,
                 signal_debug=args.signal_debug,
                 state_file=args.state_file,
             )
@@ -387,6 +395,7 @@ def main():
             trail_min_step_atr=args.trail_min_step_atr,
             management_interval=args.interval,
             management_limit=args.limit,
+            allow_multiple_positions=args.allow_multiple_positions,
         )
 
         _log_tv_webhook_startup_config(args, settings)

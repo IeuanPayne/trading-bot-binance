@@ -23,10 +23,12 @@ def test_pine_script_defaults_to_anchor_close_touch_mode():
 def test_pine_script_uses_wick_touch_logic():
     source = _pine_source()
 
-    assert "touchedEma = low <= touchEma and high >= touchEma" in source
+    assert "useAnchorBandTouch = touchEmaSource == \"Anchor High\" or touchEmaSource == \"Anchor Close\"" in source
+    assert "touchedEma = useAnchorBandTouch ? (low <= anchorBandTop and high >= anchorBandBottom) : (low <= touchEma and high >= touchEma)" in source
+    assert "referenceLine = useAnchorBandTouch ? anchorClose : touchEma" in source
     assert "if touchedEma" in source
-    assert "if close > touchEma" in source
-    assert "else if close < touchEma" in source
+    assert "if close > referenceLine" in source
+    assert "else if close < referenceLine" in source
     assert "bodyTouchEma = math.min(open, close) <= touchEma and math.max(open, close) >= touchEma" not in source
 
 

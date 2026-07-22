@@ -218,6 +218,7 @@ The runtime reads `.env` through `trading_bot/config.py`.
 | `MT5_SLIPPAGE` | `30` |
 | `MT5_AUTO_MAGIC` | `True` |
 | `MT5_BASE_MAGIC` | `20260629` |
+| `MT5_ALLOW_MULTIPLE_POSITIONS` | `False` |
 | `MT5_SIGNAL_DEBUG` | `False` |
 
 ### TradingView Webhook

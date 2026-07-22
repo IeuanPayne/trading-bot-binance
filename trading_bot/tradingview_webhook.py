@@ -55,6 +55,7 @@ class WebhookTradeSettings:
     management_interval: str = "15m"
     management_limit: int = 500
     management_poll_seconds: float = 5.0
+    allow_multiple_positions: bool = False
 
 
 def _effective_magic_for_interval(interval: str, settings: WebhookTradeSettings) -> int:
@@ -191,9 +192,9 @@ def process_tradingview_signal(
     if state_store.is_signal_processed(symbol, signal_key):
         return {"status": "duplicate", "signal_id": signal["signal_id"]}
 
-    # Block if any net position is already open for this symbol.
+    # By default we enforce one active position per symbol in webhook mode.
     position = connector.get_net_position(symbol, magic=None)
-    if position is not None:
+    if position is not None and not settings.allow_multiple_positions:
         state_store.mark_signal_processed(symbol, signal_key, {"action": "skipped", "reason": "position_open"})
         return {"status": "skipped", "reason": "position_open", "signal_id": signal["signal_id"]}
 

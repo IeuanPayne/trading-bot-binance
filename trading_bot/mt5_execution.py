@@ -12,6 +12,7 @@ from .config import (
     MAX_DAILY_LOSS_USDT,
     MAX_DRAWDOWN_PCT,
     MAX_TRADES_PER_DAY,
+    MT5_ALLOW_MULTIPLE_POSITIONS,
     MT5_BASE_MAGIC,
     MT5_STAGED_BE_OFFSET_PIPS,
     MT5_STAGED_BE_TRIGGER_PIPS,
@@ -540,6 +541,7 @@ def _manage_existing_mt5_position(
     staged_trail_pips: float,
     staged_tp4_open: bool,
     magic: int | None,
+    entry_mode: bool = True,
 ) -> bool:
     if position is None and tracked_position:
         outcome = None
@@ -613,7 +615,10 @@ def _manage_existing_mt5_position(
     except Exception as exc:
         logger.warning("MT5 trailing stop update skipped for {}: {}", symbol, exc)
 
-    logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
+    if entry_mode:
+        logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
+    else:
+        logger.debug("MT5 management: existing position for {} (side={}) remains open.", symbol, position.side)
     return True
 
 
@@ -666,6 +671,7 @@ def manage_mt5_position_cycle(
         staged_trail_pips=staged_trail_pips,
         staged_tp4_open=staged_tp4_open,
         magic=magic,
+        entry_mode=False,
     )
 
 
@@ -708,6 +714,7 @@ def run_mt5_trade(
     staged_tp4_open: bool = MT5_STAGED_TP4_OPEN,
     stop_pips: float = 0.7,
     magic: int | None = MT5_BASE_MAGIC,
+    allow_multiple_positions: bool = MT5_ALLOW_MULTIPLE_POSITIONS,
     signal_debug: bool = False,
     state_file: str = "mt5_trading_state.db",
 ) -> None:
@@ -790,7 +797,7 @@ def run_mt5_trade(
 
     tracked_position = state_store.get_position(symbol)
     position = connector.get_net_position(symbol, magic=magic)
-    if _manage_existing_mt5_position(
+    has_open_position = _manage_existing_mt5_position(
         connector=connector,
         state_store=state_store,
         symbol=symbol,
@@ -810,7 +817,9 @@ def run_mt5_trade(
         staged_trail_pips=staged_trail_pips,
         staged_tp4_open=staged_tp4_open,
         magic=magic,
-    ):
+        entry_mode=True,
+    )
+    if has_open_position and not allow_multiple_positions:
         state_store.mark_signal_processed(symbol, signal_id, {"action": "skipped", "reason": "position_open"})
         return
 
