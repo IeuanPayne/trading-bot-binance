@@ -20,23 +20,24 @@ def test_pine_script_defaults_to_anchor_close_touch_mode():
     assert 'anchorEmaLen = input.int(200, "Anchor EMA Length", minval=1)' in source
 
 
-def test_pine_script_uses_body_touch_not_wick_touch():
+def test_pine_script_uses_wick_touch_logic():
     source = _pine_source()
 
-    assert "bodyTouchEma = math.min(open, close) <= touchEma and math.max(open, close) >= touchEma" in source
-    assert "if bodyTouchEma and touchZoneOk" in source
-    assert "low <= touchEma and high >= touchEma" not in source
+    assert "touchedEma = low <= touchEma and high >= touchEma" in source
+    assert "if touchedEma" in source
+    assert "if close > touchEma" in source
+    assert "else if close < touchEma" in source
+    assert "bodyTouchEma = math.min(open, close) <= touchEma and math.max(open, close) >= touchEma" not in source
 
 
-def test_pine_script_rearms_touch_signals_after_moving_away():
+def test_pine_script_does_not_use_rearm_or_distance_gates():
     source = _pine_source()
 
-    assert 'rearmAwayDistancePct = input.float(0.20, "Rearm Distance From Touch EMA (%)"' in source
-    assert "movedAwayFromTouchEma = touchDistancePct >= rearmAwayDistancePct" in source
-    assert "longTouchArmed := true" in source
-    assert "shortTouchArmed := true" in source
-    assert "longTouchArmed := false" in source
-    assert "shortTouchArmed := false" in source
+    assert "Rearm Distance From Touch EMA (%)" not in source
+    assert "Max Close Distance To Touch EMA (%)" not in source
+    assert "Max EMA Channel Width (%)" not in source
+    assert "longTouchArmed" not in source
+    assert "shortTouchArmed" not in source
 
 
 def test_pine_script_supports_anchor_color_modes():

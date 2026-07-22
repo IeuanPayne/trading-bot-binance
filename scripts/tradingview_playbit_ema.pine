@@ -12,10 +12,6 @@ ema4Len = input.int(34, "EMA 4 Length")
 ema5Len = input.int(55, "EMA 5 Length")
 signalMode = input.string("EMA Touch", "Signal Mode", options=["EMA Touch", "Continuation"])
 touchEmaSource = input.string("Anchor Close", "Touch EMA", options=["EMA1", "EMA2", "EMA3", "EMA4", "EMA5", "Anchor High", "Anchor Close"])
-touchTrendLookback = input.int(3, "Touch Trend Lookback", minval=1)
-maxTouchDistancePct = input.float(0.03, "Max Close Distance To Touch EMA (%)", minval=0.0, step=0.01)
-maxChannelWidthPct = input.float(0.20, "Max EMA Channel Width (%)", minval=0.0, step=0.01)
-rearmAwayDistancePct = input.float(0.20, "Rearm Distance From Touch EMA (%)", minval=0.0, step=0.01)
 anchorEmaLen = input.int(200, "Anchor EMA Length", minval=1)
 showAnchorBand = input.bool(true, "Show Anchor EMA Band")
 showBaseEmaChannel = input.bool(false, "Show Base EMA Channel")
@@ -60,11 +56,6 @@ else if touchEmaSource == "Anchor High"
 
 bullStack = ema1 > ema2 and ema2 > ema3 and ema3 > ema4 and ema4 > ema5
 bearStack = ema1 < ema2 and ema2 < ema3 and ema3 < ema4 and ema4 < ema5
-touchSlopeUp = touchEma > nz(touchEma[touchTrendLookback], touchEma)
-touchSlopeDown = touchEma < nz(touchEma[touchTrendLookback], touchEma)
-touchDistancePct = touchEma != 0 ? math.abs(close - touchEma) / touchEma * 100 : 0.0
-channelWidthPct = touchEma != 0 ? (chTop - chBot) / touchEma * 100 : 0.0
-touchZoneOk = touchDistancePct <= maxTouchDistancePct and channelWidthPct <= maxChannelWidthPct
 anchorSlopeUp = anchorClose >= nz(anchorClose[1], anchorClose)
 anchorBull = anchorColorMode == "Fixed" ? true : anchorColorMode == "Slope" ? anchorSlopeUp : close >= anchorClose
 activeAnchorHighColor = anchorBull ? anchorHighColor : anchorBearHighColor
@@ -73,8 +64,6 @@ activeAnchorCloseColor = anchorBull ? anchorCloseColor : anchorBearCloseColor
 // State machine
 var string trend = "NONE"
 var string entryState = "IDLE"
-var bool longTouchArmed = true
-var bool shortTouchArmed = true
 
 longSignal = false
 shortSignal = false
@@ -87,19 +76,12 @@ confirmDown = false
 
 if barstate.isconfirmed
     if signalMode == "EMA Touch"
-        movedAwayFromTouchEma = touchDistancePct >= rearmAwayDistancePct
-        if movedAwayFromTouchEma
-            longTouchArmed := true
-            shortTouchArmed := true
-
-        bodyTouchEma = math.min(open, close) <= touchEma and math.max(open, close) >= touchEma
-        if bodyTouchEma and touchZoneOk
-            if bullStack and touchSlopeUp and close > touchEma and longTouchArmed
+        touchedEma = low <= touchEma and high >= touchEma
+        if touchedEma
+            if close > touchEma
                 longSignal := true
-                longTouchArmed := false
-            else if bearStack and touchSlopeDown and close < touchEma and shortTouchArmed
+            else if close < touchEma
                 shortSignal := true
-                shortTouchArmed := false
     else
         breakoutUp := bullStack and close > chTop
         breakoutDown := bearStack and close < chBot
