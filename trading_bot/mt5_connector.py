@@ -138,6 +138,35 @@ class MT5Connector:
             return 0.0
         return float(tick.ask if side.upper() == "BUY" else tick.bid)
 
+    def normalize_price(self, symbol: str, price: float) -> float:
+        """Round price to broker symbol precision."""
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return float(price)
+        digits = int(getattr(info, "digits", 0) or 0)
+        if digits < 0:
+            digits = 0
+        return round(float(price), digits)
+
+    def get_stop_distance_constraints(self, symbol: str) -> dict[str, float]:
+        """Return broker stop and freeze distance constraints in price units."""
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return {"stops": 0.0, "freeze": 0.0, "point": 0.0}
+
+        point = float(getattr(info, "point", 0.0) or 0.0)
+        stops_level = float(getattr(info, "trade_stops_level", 0.0) or 0.0)
+        freeze_level = float(getattr(info, "trade_freeze_level", 0.0) or 0.0)
+
+        if point <= 0:
+            return {"stops": 0.0, "freeze": 0.0, "point": 0.0}
+
+        return {
+            "stops": stops_level * point,
+            "freeze": freeze_level * point,
+            "point": point,
+        }
+
     def get_spread_pips(self, symbol: str, pip_size: float = 0.10) -> float:
         if pip_size <= 0:
             return 0.0

@@ -149,6 +149,14 @@ def _is_valid_stop(side: str, stop_price: float, mark_price: float) -> bool:
     return stop_price > mark_price
 
 
+def _is_broker_distance_valid(side: str, stop_price: float, mark_price: float, min_distance: float) -> bool:
+    if min_distance <= 0:
+        return True
+    if side == "BUY":
+        return stop_price <= (mark_price - min_distance)
+    return stop_price >= (mark_price + min_distance)
+
+
 def _normalize_partial_close_volume(connector: MT5Connector, symbol: str, requested: float, remaining: float, is_final: bool) -> float:
     if is_final:
         return remaining
@@ -291,6 +299,10 @@ def _maybe_manage_staged_exit(
     if mark_price <= 0:
         return True
 
+    constraints_fetcher = getattr(connector, "get_stop_distance_constraints", None)
+    constraints = constraints_fetcher(symbol) if callable(constraints_fetcher) else {"stops": 0.0, "freeze": 0.0}
+    min_stop_distance = max(_safe_float(constraints.get("stops", 0.0)), _safe_float(constraints.get("freeze", 0.0)))
+
     current_sl = _safe_float(getattr(position, "sl", tracked.get("sl", 0.0)), default=_safe_float(tracked.get("sl", 0.0)))
     current_tp = _safe_float(getattr(position, "tp", tracked.get("tp", 0.0)), default=_safe_float(tracked.get("tp", 0.0)))
     desired_sl = current_sl
@@ -385,19 +397,37 @@ def _maybe_manage_staged_exit(
     sl_changed = abs(desired_sl - current_sl) > 1e-9
     tp_changed = abs(desired_tp - current_tp) > 1e-9
     if (sl_changed and _is_valid_stop(side, desired_sl, mark_price)) or tp_changed:
-        response = connector.modify_position_sltp(symbol=symbol, position=position, sl=desired_sl, tp=desired_tp)
-        tracked["sl"] = desired_sl
-        tracked["tp"] = desired_tp
-        logger.info(
-            "MT5 staged stop updated: side={} entry={} mark={} old_sl={} new_sl={} tp={} response={}",
-            side,
-            _safe_float(tracked.get("entry_price", 0.0)),
-            mark_price,
-            current_sl,
-            desired_sl,
-            desired_tp,
-            response,
-        )
+        normalizer = getattr(connector, "normalize_price", None)
+        normalized_sl = normalizer(symbol, desired_sl) if callable(normalizer) else desired_sl
+        normalized_tp = normalizer(symbol, desired_tp) if callable(normalizer) and desired_tp > 0 else desired_tp
+
+        if sl_changed and not _is_broker_distance_valid(side, normalized_sl, mark_price, min_stop_distance):
+            logger.debug(
+                "MT5 staged stop candidate rejected by broker constraints: symbol={} side={} mark={} candidate_sl={} min_distance={}",
+                symbol,
+                side,
+                mark_price,
+                normalized_sl,
+                min_stop_distance,
+            )
+            tracked["sl"] = current_sl
+            tracked["tp"] = current_tp
+        else:
+            response = connector.modify_position_sltp(symbol=symbol, position=position, sl=normalized_sl, tp=normalized_tp)
+            desired_sl = normalized_sl
+            desired_tp = normalized_tp
+            tracked["sl"] = desired_sl
+            tracked["tp"] = desired_tp
+            logger.info(
+                "MT5 staged stop updated: side={} entry={} mark={} old_sl={} new_sl={} tp={} response={}",
+                side,
+                _safe_float(tracked.get("entry_price", 0.0)),
+                mark_price,
+                current_sl,
+                desired_sl,
+                desired_tp,
+                response,
+            )
     else:
         tracked["sl"] = current_sl
         tracked["tp"] = current_tp
@@ -469,6 +499,10 @@ def _maybe_apply_trailing_stop(
     if mark_price <= 0:
         return
 
+    constraints_fetcher = getattr(connector, "get_stop_distance_constraints", None)
+    constraints = constraints_fetcher(symbol) if callable(constraints_fetcher) else {"stops": 0.0, "freeze": 0.0}
+    min_stop_distance = max(_safe_float(constraints.get("stops", 0.0)), _safe_float(constraints.get("freeze", 0.0)))
+
     favorable_move = mark_price - entry_price if side == "BUY" else entry_price - mark_price
     if favorable_move < (trail_activate_r * initial_r):
         return
@@ -493,6 +527,17 @@ def _maybe_apply_trailing_stop(
         new_sl = max(candidate_sl, entry_price)
         if new_sl <= current_sl or new_sl >= mark_price:
             return
+        if not _is_broker_distance_valid(side, new_sl, mark_price, min_stop_distance):
+            logger.debug(
+                "MT5 trailing candidate rejected by broker constraints: symbol={} side={} mark={} current_sl={} candidate_sl={} min_stop_distance={}",
+                symbol,
+                side,
+                mark_price,
+                current_sl,
+                new_sl,
+                min_stop_distance,
+            )
+            return
         if min_step > 0 and (new_sl - current_sl) < min_step:
             return
     else:
@@ -501,11 +546,38 @@ def _maybe_apply_trailing_stop(
         new_sl = min(candidate_sl, entry_price)
         if new_sl >= current_sl or new_sl <= mark_price:
             return
+        if not _is_broker_distance_valid(side, new_sl, mark_price, min_stop_distance):
+            logger.debug(
+                "MT5 trailing candidate rejected by broker constraints: symbol={} side={} mark={} current_sl={} candidate_sl={} min_stop_distance={}",
+                symbol,
+                side,
+                mark_price,
+                current_sl,
+                new_sl,
+                min_stop_distance,
+            )
+            return
         if min_step > 0 and (current_sl - new_sl) < min_step:
             return
 
-    response = connector.modify_position_sltp(symbol=symbol, position=position, sl=new_sl, tp=current_tp)
-    tracked["sl"] = new_sl
+    normalizer = getattr(connector, "normalize_price", None)
+    normalized_sl = normalizer(symbol, new_sl) if callable(normalizer) else new_sl
+    normalized_tp = normalizer(symbol, current_tp) if callable(normalizer) and current_tp > 0 else current_tp
+
+    if not _is_broker_distance_valid(side, normalized_sl, mark_price, min_stop_distance):
+        logger.debug(
+            "MT5 trailing normalized stop rejected by broker constraints: symbol={} side={} mark={} current_sl={} normalized_sl={} min_stop_distance={}",
+            symbol,
+            side,
+            mark_price,
+            current_sl,
+            normalized_sl,
+            min_stop_distance,
+        )
+        return
+
+    response = connector.modify_position_sltp(symbol=symbol, position=position, sl=normalized_sl, tp=normalized_tp)
+    tracked["sl"] = normalized_sl
     tracked["updated_at"] = str(df.iloc[-1].get("close_time"))
     if tracked:
         state_store.set_position(symbol, tracked)
@@ -515,8 +587,8 @@ def _maybe_apply_trailing_stop(
         entry_price,
         mark_price,
         current_sl,
-        new_sl,
-        current_tp,
+        normalized_sl,
+        normalized_tp,
         response,
     )
 
