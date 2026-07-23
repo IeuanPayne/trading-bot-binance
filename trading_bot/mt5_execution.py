@@ -157,6 +157,10 @@ def _is_broker_distance_valid(side: str, stop_price: float, mark_price: float, m
     return stop_price >= (mark_price + min_distance)
 
 
+def _is_mt5_invalid_stops_error(exc: Exception) -> bool:
+    return "retcode=10016" in str(exc)
+
+
 def _normalize_partial_close_volume(connector: MT5Connector, symbol: str, requested: float, remaining: float, is_final: bool) -> float:
     if is_final:
         return remaining
@@ -396,6 +400,24 @@ def _maybe_manage_staged_exit(
 
     sl_changed = abs(desired_sl - current_sl) > 1e-9
     tp_changed = abs(desired_tp - current_tp) > 1e-9
+    current_sl_is_valid = _is_valid_stop(side, current_sl, mark_price) and _is_broker_distance_valid(
+        side,
+        current_sl,
+        mark_price,
+        min_stop_distance,
+    )
+
+    if tp_changed and not sl_changed and not current_sl_is_valid:
+        logger.debug(
+            "MT5 staged TP update deferred because current SL violates broker constraints: symbol={} side={} mark={} current_sl={} min_stop_distance={}",
+            symbol,
+            side,
+            mark_price,
+            current_sl,
+            min_stop_distance,
+        )
+        tp_changed = False
+
     if (sl_changed and _is_valid_stop(side, desired_sl, mark_price)) or tp_changed:
         normalizer = getattr(connector, "normalize_price", None)
         normalized_sl = normalizer(symbol, desired_sl) if callable(normalizer) else desired_sl
@@ -656,8 +678,9 @@ def _manage_existing_mt5_position(
     if position is None:
         return False
 
+    staged_managed = False
     try:
-        if not _maybe_manage_staged_exit(
+        staged_managed = _maybe_manage_staged_exit(
             connector=connector,
             state_store=state_store,
             symbol=symbol,
@@ -670,7 +693,15 @@ def _manage_existing_mt5_position(
             staged_trail_pips=staged_trail_pips,
             staged_tp4_open=staged_tp4_open,
             latest_close_time=latest_close_time,
-        ):
+        )
+    except Exception as exc:
+        if _is_mt5_invalid_stops_error(exc):
+            logger.debug("MT5 staged-exit SL/TP update deferred for {} due to broker stop constraints: {}", symbol, exc)
+        else:
+            logger.warning("MT5 staged-exit update skipped for {}: {}", symbol, exc)
+
+    if not staged_managed:
+        try:
             _maybe_apply_trailing_stop(
                 connector=connector,
                 state_store=state_store,
@@ -684,8 +715,11 @@ def _manage_existing_mt5_position(
                 trail_atr_mult=trail_atr_mult,
                 trail_min_step_atr=trail_min_step_atr,
             )
-    except Exception as exc:
-        logger.warning("MT5 trailing stop update skipped for {}: {}", symbol, exc)
+        except Exception as exc:
+            if _is_mt5_invalid_stops_error(exc):
+                logger.debug("MT5 trailing stop update deferred for {} due to broker stop constraints: {}", symbol, exc)
+            else:
+                logger.warning("MT5 trailing stop update skipped for {}: {}", symbol, exc)
 
     if entry_mode:
         logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
