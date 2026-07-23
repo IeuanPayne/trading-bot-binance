@@ -14,6 +14,7 @@ from .config import (
     MAX_TRADES_PER_DAY,
     MT5_ALLOW_MULTIPLE_POSITIONS,
     MT5_BASE_MAGIC,
+    MT5_LOT_PER_500_BALANCE,
     MT5_STAGED_BE_OFFSET_PIPS,
     MT5_STAGED_BE_TRIGGER_PIPS,
     MT5_STAGED_EXIT_ENABLED,
@@ -831,6 +832,7 @@ def run_mt5_trade(
     stop_pips: float = 0.7,
     magic: int | None = MT5_BASE_MAGIC,
     allow_multiple_positions: bool = MT5_ALLOW_MULTIPLE_POSITIONS,
+    lot_per_500_balance: float = MT5_LOT_PER_500_BALANCE,
     signal_debug: bool = False,
     state_file: str = "mt5_trading_state.db",
 ) -> None:
@@ -1011,18 +1013,24 @@ def run_mt5_trade(
         else:
             tp_distance = sl_distance
 
-    if use_risk_pct and effective_sl_pips > 0:
-        risk_amount = balance * (risk_pct / 100.0)
-        volume = connector.volume_from_risk_pips(
-            symbol=symbol,
-            risk_amount=risk_amount,
-            sl_pips=effective_sl_pips,
-            pip_size=pip_size,
-        )
-        allocation = risk_amount
+    if lot_per_500_balance > 0:
+        raw_volume = lot_per_500_balance * (balance / 500.0)
+        normalizer = getattr(connector, "normalize_volume", None)
+        volume = float(normalizer(symbol, raw_volume)) if callable(normalizer) else raw_volume
+        allocation = balance
     else:
-        allocation = balance * order_pct
-        volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
+        if use_risk_pct and effective_sl_pips > 0:
+            risk_amount = balance * (risk_pct / 100.0)
+            volume = connector.volume_from_risk_pips(
+                symbol=symbol,
+                risk_amount=risk_amount,
+                sl_pips=effective_sl_pips,
+                pip_size=pip_size,
+            )
+            allocation = risk_amount
+        else:
+            allocation = balance * order_pct
+            volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
 
     if volume <= 0:
         logger.error("Calculated MT5 volume is too small for {} (allocation={})", symbol, allocation)

@@ -260,6 +260,31 @@ def test_mt5_trade_dynamic_sltp_uses_atr_distance(monkeypatch, tmp_path):
     assert connector.risk_calls[0]["sl_pips"] == 20.0
 
 
+def test_mt5_trade_uses_lot_per_500_balance_when_configured(monkeypatch, tmp_path):
+    connector = FakeMT5Connector()
+
+    def fake_signals(df, ema_fast, ema_mid, ema_slow, ema_slower, ema_slowest, include_state=False):
+        signals = df.copy()
+        signals["long_signal"] = [False] * (len(df) - 1) + [True]
+        signals["short_signal"] = [False] * len(df)
+        return signals
+
+    monkeypatch.setattr("trading_bot.mt5_execution.prepare_ema_channel_signals", fake_signals)
+
+    state_file = str(tmp_path / "mt5_state.db")
+    run_mt5_trade(
+        connector=connector,
+        symbol="BTCUSD",
+        limit=20,
+        state_file=state_file,
+        lot_per_500_balance=0.01,
+    )
+
+    assert len(connector.market_orders) == 1
+    # Balance is 10_000 in fake connector, so expected lots = 0.01 * (10000 / 500) = 0.2
+    assert connector.market_orders[0]["volume"] == 0.2
+
+
 def test_mt5_trade_trailing_stop_updates_sl_after_activation(monkeypatch, tmp_path):
     connector = FakeMT5Connector()
     connector.position = _FakePosition(ticket=42, side="BUY", volume=0.01, price_open=100.0, sl=95.0, tp=110.0)

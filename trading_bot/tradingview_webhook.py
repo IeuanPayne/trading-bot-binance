@@ -40,6 +40,7 @@ class WebhookTradeSettings:
     tp_pips: float
     stop_pips: float
     magic: int
+    lot_per_500_balance: float = 0.0
     base_magic: int = 20260629
     auto_magic: bool = True
     staged_exit_enabled: bool = False
@@ -216,17 +217,22 @@ def process_tradingview_signal(
     sl_distance = settings.sl_pips * settings.pip_size if settings.sl_pips > 0 else settings.stop_pips
     tp_distance = settings.tp_pips * settings.pip_size if settings.tp_pips > 0 else sl_distance
 
-    if settings.use_risk_pct and settings.sl_pips > 0:
-        risk_amount = balance * (settings.risk_pct / 100.0)
-        volume = connector.volume_from_risk_pips(
-            symbol=symbol,
-            risk_amount=risk_amount,
-            sl_pips=settings.sl_pips,
-            pip_size=settings.pip_size,
-        )
+    if settings.lot_per_500_balance > 0:
+        raw_volume = settings.lot_per_500_balance * (balance / 500.0)
+        normalizer = getattr(connector, "normalize_volume", None)
+        volume = float(normalizer(symbol, raw_volume)) if callable(normalizer) else raw_volume
     else:
-        allocation = balance * settings.order_pct
-        volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
+        if settings.use_risk_pct and settings.sl_pips > 0:
+            risk_amount = balance * (settings.risk_pct / 100.0)
+            volume = connector.volume_from_risk_pips(
+                symbol=symbol,
+                risk_amount=risk_amount,
+                sl_pips=settings.sl_pips,
+                pip_size=settings.pip_size,
+            )
+        else:
+            allocation = balance * settings.order_pct
+            volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
 
     if volume <= 0:
         raise RuntimeError(f"calculated volume is too small for {symbol}")

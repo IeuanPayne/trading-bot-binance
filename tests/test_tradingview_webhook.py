@@ -259,6 +259,27 @@ def test_process_tradingview_signal_stores_timeframe_magic_for_5m_with_staged_ex
     assert position["magic"] == 20260634
 
 
+def test_process_tradingview_signal_uses_lot_per_500_balance_when_configured(tmp_path):
+    connector = _FakeConnector()
+    settings = _settings(str(tmp_path / "tv_state.db"))
+    settings.lot_per_500_balance = 0.01
+    signal = {
+        "signal_id": "lot500-001",
+        "strategy_id": "playbit",
+        "symbol": "XAUUSD",
+        "timeframe": "15m",
+        "side": "BUY",
+        "timestamp": "2026-07-16T10:45:00Z",
+    }
+
+    result = process_tradingview_signal(connector, signal, settings)
+
+    assert result["status"] == "filled"
+    assert len(connector.orders) == 1
+    # Balance is 10_000 in fake connector, so expected lots = 0.01 * (10000 / 500) = 0.2
+    assert connector.orders[0]["volume"] == 0.2
+
+
 def test_is_sdk_web_language_probe_matches_expected_path():
     assert _is_sdk_web_language_probe("/SDK/webLanguage") is True
     assert _is_sdk_web_language_probe("/SDK/webLanguage/") is True

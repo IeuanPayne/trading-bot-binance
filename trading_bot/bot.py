@@ -23,6 +23,7 @@ from .config import (
     MODELED_SPREAD_PIPS,
     MT5_AUTO_MAGIC,
     MT5_BASE_MAGIC,
+    MT5_LOT_PER_500_BALANCE,
     MT5_DYNAMIC_SLTP,
     MT5_LOGIN,
     MT5_PASSWORD,
@@ -107,7 +108,7 @@ def _log_tv_webhook_startup_config(args: argparse.Namespace, settings: WebhookTr
         allowed_source_ips,
     )
     logger.info(
-        "TVWebhook trading config: interval_default={} limit={} max_spread_pips={} pip_size={} use_risk_pct={} risk_pct={} sl_pips={} tp_pips={} staged_exit={} trailing_stop={} allow_multiple_positions={} base_magic={} auto_magic={} effective_magic_default={}",
+        "TVWebhook trading config: interval_default={} limit={} max_spread_pips={} pip_size={} use_risk_pct={} risk_pct={} sl_pips={} tp_pips={} lot_per_500_balance={} staged_exit={} trailing_stop={} allow_multiple_positions={} base_magic={} auto_magic={} effective_magic_default={}",
         args.interval,
         args.limit,
         args.max_spread_pips,
@@ -116,6 +117,7 @@ def _log_tv_webhook_startup_config(args: argparse.Namespace, settings: WebhookTr
         args.risk_pct,
         args.sl_pips,
         args.tp_pips,
+        args.lot_per_500_balance,
         args.tv_staged_exit,
         args.trailing_stop,
         args.allow_multiple_positions,
@@ -256,6 +258,7 @@ def main():
         default=MT5_ALLOW_MULTIPLE_POSITIONS,
     )
     parser.add_argument("--signal-debug", action=argparse.BooleanOptionalAction, default=MT5_SIGNAL_DEBUG)
+    parser.add_argument("--lot-per-500-balance", type=float, default=MT5_LOT_PER_500_BALANCE)
     parser.add_argument("--stop-pips", type=float, default=0.7)
     parser.add_argument("--disable-oco", action="store_true")
     parser.add_argument("--state-file", default=MT5_STATE_FILE)
@@ -354,6 +357,7 @@ def main():
                 stop_pips=args.stop_pips,
                 magic=magic,
                 allow_multiple_positions=args.allow_multiple_positions,
+                lot_per_500_balance=args.lot_per_500_balance,
                 signal_debug=args.signal_debug,
                 state_file=args.state_file,
             )
@@ -401,6 +405,7 @@ def main():
             management_interval=args.interval,
             management_limit=args.limit,
             allow_multiple_positions=args.allow_multiple_positions,
+            lot_per_500_balance=args.lot_per_500_balance,
         )
 
         _log_tv_webhook_startup_config(args, settings)
