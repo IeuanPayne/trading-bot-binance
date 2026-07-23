@@ -10,7 +10,7 @@ ema2Len = input.int(13, "EMA 2 Length")
 ema3Len = input.int(21, "EMA 3 Length")
 ema4Len = input.int(34, "EMA 4 Length")
 ema5Len = input.int(55, "EMA 5 Length")
-signalMode = input.string("EMA Touch", "Signal Mode", options=["EMA Touch", "Continuation"])
+signalMode = input.string("EMA Touch", "Signal Mode", options=["EMA Touch", "Continuation", "Channel Retest"])
 touchEmaSource = input.string("Anchor Close", "Touch EMA", options=["EMA1", "EMA2", "EMA3", "EMA4", "EMA5", "Anchor High", "Anchor Close"])
 anchorEmaLen = input.int(200, "Anchor EMA Length", minval=1)
 showAnchorBand = input.bool(true, "Show Anchor EMA Band")
@@ -66,6 +66,8 @@ anchorBandBottom = math.min(anchorHigh, anchorClose)
 // State machine
 var string trend = "NONE"
 var string entryState = "IDLE"
+var string channelRetestBias = "NONE"
+var bool channelRetestArmed = false
 
 longSignal = false
 shortSignal = false
@@ -86,7 +88,7 @@ if barstate.isconfirmed
                 longSignal := true
             else if close < referenceLine
                 shortSignal := true
-    else
+    else if signalMode == "Continuation"
         breakoutUp := bullStack and close > chTop
         breakoutDown := bearStack and close < chBot
 
@@ -120,6 +122,22 @@ if barstate.isconfirmed
 
             trend := "NONE"
             entryState := "IDLE"
+    else
+        channelBias = bullStack ? "BULL" : bearStack ? "BEAR" : "NONE"
+        if channelBias != "NONE" and channelBias != channelRetestBias
+            channelRetestBias := channelBias
+            channelRetestArmed := true
+
+        touchedBullRetest = low <= chBot and close > chBot
+        touchedBearRetest = high >= chTop and close < chTop
+
+        if channelRetestArmed
+            if channelRetestBias == "BULL" and touchedBullRetest
+                longSignal := true
+                channelRetestArmed := false
+            else if channelRetestBias == "BEAR" and touchedBearRetest
+                shortSignal := true
+                channelRetestArmed := false
 
 // Plots
 p1 = plot(showBaseEmaChannel ? ema1 : na, color=lineColor, title="EMA1")

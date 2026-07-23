@@ -124,6 +124,11 @@ def _log_tv_webhook_startup_config(args: argparse.Namespace, settings: WebhookTr
         settings.magic,
     )
     logger.info(
+        "TVWebhook position mode: single_position={} allow_multiple_positions={}",
+        not args.allow_multiple_positions,
+        args.allow_multiple_positions,
+    )
+    logger.info(
         "TVWebhook state config: state_file={} secret={} mt5_login={} mt5_server={} mt5_symbol={}",
         args.state_file,
         _mask_secret(str(args.tv_secret)),
