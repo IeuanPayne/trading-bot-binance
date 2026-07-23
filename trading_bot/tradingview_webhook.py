@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import json
 import ipaddress
+import json
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
-from .mt5_execution import _build_staged_position_state, manage_mt5_position_cycle
 from .mt5_connector import MT5Connector
+from .mt5_execution import _build_staged_position_state, manage_mt5_position_cycle
 from .state_store import TradingStateStore
-
 
 _INTERVAL_TO_PERIOD = {
     "1m": 1,
@@ -221,18 +221,17 @@ def process_tradingview_signal(
         raw_volume = settings.lot_per_500_balance * (balance / 500.0)
         normalizer = getattr(connector, "normalize_volume", None)
         volume = float(normalizer(symbol, raw_volume)) if callable(normalizer) else raw_volume
+    elif settings.use_risk_pct and settings.sl_pips > 0:
+        risk_amount = balance * (settings.risk_pct / 100.0)
+        volume = connector.volume_from_risk_pips(
+            symbol=symbol,
+            risk_amount=risk_amount,
+            sl_pips=settings.sl_pips,
+            pip_size=settings.pip_size,
+        )
     else:
-        if settings.use_risk_pct and settings.sl_pips > 0:
-            risk_amount = balance * (settings.risk_pct / 100.0)
-            volume = connector.volume_from_risk_pips(
-                symbol=symbol,
-                risk_amount=risk_amount,
-                sl_pips=settings.sl_pips,
-                pip_size=settings.pip_size,
-            )
-        else:
-            allocation = balance * settings.order_pct
-            volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
+        allocation = balance * settings.order_pct
+        volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
 
     if volume <= 0:
         raise RuntimeError(f"calculated volume is too small for {symbol}")
@@ -396,7 +395,7 @@ def start_tradingview_webhook_server(
             super().handle_error(request, client_address)
 
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             if self.path.rstrip("/") in ("", "/"):
                 self._send_json(200, {"status": "ok"})
                 return
@@ -405,7 +404,7 @@ def start_tradingview_webhook_server(
                 return
             self._send_json(404, {"error": "not_found"})
 
-        def do_HEAD(self) -> None:  # noqa: N802
+        def do_HEAD(self) -> None:
             if self.path.rstrip("/") in ("", "/"):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -416,7 +415,7 @@ def start_tradingview_webhook_server(
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-        def do_POST(self) -> None:  # noqa: N802
+        def do_POST(self) -> None:
             remote_ip = self.client_address[0]
             if not _is_source_ip_allowed(remote_ip, allowed_networks):
                 logger.warning(
@@ -477,7 +476,7 @@ def start_tradingview_webhook_server(
                 logger.error("TVWebhook outcome=rejected reason=internal_error ip={} path={}", remote_ip, self.path)
                 self._send_json(500, {"error": str(exc)})
 
-        def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
+        def log_message(self, format: str, *args: Any) -> None:
             message = format % args
             parts = message.rsplit(" ", 1)
             status_code = 0

@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
-from trading_bot.execution import run_paper_trade
 from trading_bot.config import (
     EMA1_LEN,
     EMA2_LEN,
@@ -26,7 +25,7 @@ from trading_bot.config import (
     SESSION,
     SESSION_TZ_OFFSET,
 )
-
+from trading_bot.execution import run_paper_trade
 
 logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
 

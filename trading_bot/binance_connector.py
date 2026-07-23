@@ -1,9 +1,10 @@
 import math
-import requests
+from typing import Any
+
 import pandas as pd
+import requests
 from binance.client import Client
 from loguru import logger
-from typing import Optional, Dict, Any, Tuple
 
 BASE_URL: str = "https://api.binance.com"
 TESTNET_BASE_URL: str = "https://testnet.binance.vision"
@@ -14,9 +15,9 @@ class BinanceConnector:
     
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
-        api_secret: Optional[str] = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        api_secret: str | None = None,
         testnet: bool = False,
     ) -> None:
         """Initialize Binance connector.
@@ -29,7 +30,7 @@ class BinanceConnector:
         """
         self.testnet: bool = testnet
         self.base: str = base_url or (TESTNET_BASE_URL if testnet else BASE_URL)
-        self.client: Optional[Client] = None
+        self.client: Client | None = None
 
         if api_key and api_secret:
             self.client = Client(api_key, api_secret, testnet=testnet)
@@ -51,7 +52,7 @@ class BinanceConnector:
             raw_data = self.client.get_klines(symbol=symbol, interval=interval, limit=limit)
         else:
             endpoint: str = f"{self.base}/api/v3/klines"
-            params: Dict[str, Any] = {"symbol": symbol, "interval": interval, "limit": limit}
+            params: dict[str, Any] = {"symbol": symbol, "interval": interval, "limit": limit}
             logger.debug("Requesting klines: {}", params)
             r: requests.Response = requests.get(endpoint, params=params, timeout=10)
             r.raise_for_status()
@@ -79,7 +80,7 @@ class BinanceConnector:
             df[c] = pd.to_numeric(df[c], errors="coerce")
         return df
 
-    def get_symbol_price(self, symbol: str) -> Dict[str, Any]:
+    def get_symbol_price(self, symbol: str) -> dict[str, Any]:
         """Get current price of a trading pair.
         
         Args:
@@ -92,7 +93,7 @@ class BinanceConnector:
             return {"price": 0.0}
         return self.client.get_symbol_ticker(symbol=symbol)
 
-    def get_asset_balance(self, asset: str) -> Dict[str, Any]:
+    def get_asset_balance(self, asset: str) -> dict[str, Any]:
         """Get account balance for an asset.
         
         Args:
@@ -103,7 +104,7 @@ class BinanceConnector:
         """
         if self.client is None:
             return {"free": 0.0, "locked": 0.0}
-        balance: Optional[Dict[str, Any]] = self.client.get_asset_balance(asset=asset)
+        balance: dict[str, Any] | None = self.client.get_asset_balance(asset=asset)
         return balance or {"free": 0.0, "locked": 0.0}
 
     def create_market_order(
@@ -111,8 +112,8 @@ class BinanceConnector:
         symbol: str,
         side: str,
         quantity: float,
-        client_order_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        client_order_id: str | None = None,
+    ) -> dict[str, Any]:
         """Create a market order.
         
         Args:
@@ -128,7 +129,7 @@ class BinanceConnector:
         """
         if self.client is None:
             raise RuntimeError("Binance client is not initialized for trading")
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "symbol": symbol,
             "side": side.upper(),
             "type": "MARKET",
@@ -146,10 +147,10 @@ class BinanceConnector:
         price: float,
         stop_price: float,
         stop_limit_price: float,
-        list_client_order_id: Optional[str] = None,
-        limit_client_order_id: Optional[str] = None,
-        stop_client_order_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        list_client_order_id: str | None = None,
+        limit_client_order_id: str | None = None,
+        stop_client_order_id: str | None = None,
+    ) -> dict[str, Any]:
         """Create One-Cancels-Other order (take profit + stop loss).
         
         Args:
@@ -168,7 +169,7 @@ class BinanceConnector:
         """
         if self.client is None:
             raise RuntimeError("Binance client is not initialized for trading")
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "symbol": symbol,
             "side": side.upper(),
             "quantity": quantity,
@@ -187,7 +188,7 @@ class BinanceConnector:
             **payload,
         )
 
-    def get_symbol_info(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_symbol_info(self, symbol: str) -> dict[str, Any] | None:
         """Get Binance symbol metadata (filters, precision, etc.)."""
         if self.client is None:
             return None
@@ -210,7 +211,7 @@ class BinanceConnector:
         if tick_size <= 0:
             return price
 
-        precision = max(0, -int(math.floor(math.log10(tick_size))))
+        precision = max(0, -math.floor(math.log10(tick_size)))
         rounded = math.floor(price / tick_size) * tick_size
         return round(rounded, precision)
 
@@ -226,7 +227,7 @@ class BinanceConnector:
         """
         if self.client is None:
             return quantity
-        info: Optional[Dict[str, Any]] = self.client.get_symbol_info(symbol)
+        info: dict[str, Any] | None = self.client.get_symbol_info(symbol)
         if not info:
             return quantity
         step_size: float = 1.0
@@ -238,11 +239,11 @@ class BinanceConnector:
         if step_size <= 0:
             return quantity
 
-        precision: int = max(0, -int(math.floor(math.log10(step_size))))
+        precision: int = max(0, -math.floor(math.log10(step_size)))
         rounded: float = math.floor(quantity / step_size) * step_size
         return round(rounded, precision)
 
-    def validate_market_order(self, symbol: str, quantity: float, reference_price: float) -> Tuple[bool, str]:
+    def validate_market_order(self, symbol: str, quantity: float, reference_price: float) -> tuple[bool, str]:
         """Validate a spot market order against Binance symbol filters.
 
         Args:

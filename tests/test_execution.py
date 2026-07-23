@@ -4,8 +4,8 @@ import pytest
 from trading_bot.execution import (
     _build_client_order_id,
     _safe_float,
-    _symbol_assets,
     _submit_with_retry,
+    _symbol_assets,
     _today_key,
     calculate_order_quantity,
     run_paper_trade,
@@ -54,7 +54,7 @@ class FakeTrader:
     def get_symbol_price(self, symbol: str) -> dict:
         return {"price": str(self.symbol_price)}
 
-    def create_market_order(self, symbol: str, side: str, quantity: float, client_order_id: str = None) -> dict:
+    def create_market_order(self, symbol: str, side: str, quantity: float, client_order_id: str | None = None) -> dict:
         self.market_orders.append({"symbol": symbol, "side": side, "quantity": quantity, "client_order_id": client_order_id})
         return {"status": "created", "side": side, "qty": quantity}
 
@@ -66,9 +66,9 @@ class FakeTrader:
         price: float,
         stop_price: float,
         stop_limit_price: float,
-        list_client_order_id: str = None,
-        limit_client_order_id: str = None,
-        stop_client_order_id: str = None,
+        list_client_order_id: str | None = None,
+        limit_client_order_id: str | None = None,
+        stop_client_order_id: str | None = None,
     ) -> dict:
         self.oco_orders.append(
             {

@@ -1,14 +1,9 @@
 import argparse
+
 from loguru import logger
 
-from .binance_connector import BinanceConnector
 from .backtest import ema_channel_backtest
-from .execution import run_paper_trade
-from .mt5_execution import run_mt5_trade
-from .mt5_connector import MT5Connector
-from .tradingview_webhook import WebhookTradeSettings, start_tradingview_webhook_server
-from .grid_backtest import run_grid_backtest, print_grid_summary
-from .metrics_persistence import HTMLReportGenerator
+from .binance_connector import BinanceConnector
 from .config import (
     EMA1_LEN,
     EMA2_LEN,
@@ -21,43 +16,43 @@ from .config import (
     MAX_PCT_PER_TRADE,
     MAX_SPREAD_PIPS,
     MODELED_SPREAD_PIPS,
+    MT5_ALLOW_MULTIPLE_POSITIONS,
+    MT5_ATR_PERIOD,
     MT5_AUTO_MAGIC,
     MT5_BASE_MAGIC,
-    MT5_LOT_PER_500_BALANCE,
     MT5_DYNAMIC_SLTP,
     MT5_LOGIN,
+    MT5_LOT_PER_500_BALANCE,
     MT5_PASSWORD,
-    MT5_ATR_PERIOD,
-    MT5_ALLOW_MULTIPLE_POSITIONS,
     MT5_RISK_PCT,
-    MT5_SIGNAL_DEBUG,
     MT5_SERVER,
+    MT5_SIGNAL_DEBUG,
     MT5_SL_ATR_MULT,
-    MT5_SLIPPAGE,
     MT5_SL_PIPS,
+    MT5_SLIPPAGE,
     MT5_STAGED_BE_OFFSET_PIPS,
     MT5_STAGED_BE_TRIGGER_PIPS,
     MT5_STAGED_EXIT_ENABLED,
-    MT5_STATE_FILE,
     MT5_STAGED_TP4_OPEN,
     MT5_STAGED_TRAIL_PIPS,
+    MT5_STATE_FILE,
     MT5_SYMBOL,
     MT5_TERMINAL_PATH,
-    MT5_TRAILING_STOP_ENABLED,
-    MT5_TRAIL_ACTIVATE_R,
-    MT5_TRAIL_ATR_MULT,
-    MT5_TRAIL_MIN_STEP_ATR,
-    MT5_TRAIL_ATR_PERIOD,
     MT5_TP_ATR_MULT,
     MT5_TP_PIPS,
+    MT5_TRAIL_ACTIVATE_R,
+    MT5_TRAIL_ATR_MULT,
+    MT5_TRAIL_ATR_PERIOD,
+    MT5_TRAIL_MIN_STEP_ATR,
+    MT5_TRAILING_STOP_ENABLED,
     MT5_USE_RISK_PCT,
     NEWYORK_END,
     NEWYORK_START,
     PIP_SIZE,
     SESSION,
     SESSION_TZ_OFFSET,
-    TV_ALLOWED_SYMBOLS,
     TV_ALLOWED_SOURCE_IPS,
+    TV_ALLOWED_SYMBOLS,
     TV_ALLOWED_TIMEFRAMES,
     TV_WEBHOOK_HOST,
     TV_WEBHOOK_PATH,
@@ -65,6 +60,12 @@ from .config import (
     TV_WEBHOOK_SECRET,
     validate_runtime_args,
 )
+from .execution import run_paper_trade
+from .grid_backtest import print_grid_summary, run_grid_backtest
+from .metrics_persistence import HTMLReportGenerator
+from .mt5_connector import MT5Connector
+from .mt5_execution import run_mt5_trade
+from .tradingview_webhook import WebhookTradeSettings, start_tradingview_webhook_server
 
 logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
 

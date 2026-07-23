@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class TradingStateStore:
@@ -45,8 +45,8 @@ class TradingStateStore:
             )
             conn.commit()
 
-    def load(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {"positions": {}, "signals": {}}
+    def load(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"positions": {}, "signals": {}}
         with self._connect() as conn:
             for symbol, payload in conn.execute("SELECT symbol, payload FROM positions"):
                 data["positions"][symbol] = json.loads(payload)
@@ -55,7 +55,7 @@ class TradingStateStore:
                 symbol_signals[signal_id] = json.loads(payload)
         return data
 
-    def save(self, data: Dict[str, Any]) -> None:
+    def save(self, data: dict[str, Any]) -> None:
         positions = data.get("positions", {})
         signals = data.get("signals", {})
         with self._connect() as conn:
@@ -74,14 +74,14 @@ class TradingStateStore:
                     )
             conn.commit()
 
-    def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
+    def get_position(self, symbol: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute("SELECT payload FROM positions WHERE symbol = ?", (symbol,)).fetchone()
         if row is None:
             return None
         return json.loads(row[0])
 
-    def set_position(self, symbol: str, position: Dict[str, Any]) -> None:
+    def set_position(self, symbol: str, position: dict[str, Any]) -> None:
         payload = json.dumps(position, sort_keys=True)
         with self._connect() as conn:
             conn.execute(
@@ -103,7 +103,7 @@ class TradingStateStore:
             ).fetchone()
         return row is not None
 
-    def mark_signal_processed(self, symbol: str, signal_id: str, metadata: Dict[str, Any]) -> None:
+    def mark_signal_processed(self, symbol: str, signal_id: str, metadata: dict[str, Any]) -> None:
         payload = json.dumps(metadata, sort_keys=True)
         with self._connect() as conn:
             conn.execute(
@@ -112,7 +112,7 @@ class TradingStateStore:
             )
             conn.commit()
 
-    def get_runtime_state(self, key: str, default: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    def get_runtime_state(self, key: str, default: dict[str, Any] | None = None) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT payload FROM runtime_state WHERE state_key = ?",
@@ -122,7 +122,7 @@ class TradingStateStore:
             return default
         return json.loads(row[0])
 
-    def set_runtime_state(self, key: str, value: Dict[str, Any]) -> None:
+    def set_runtime_state(self, key: str, value: dict[str, Any]) -> None:
         payload = json.dumps(value, sort_keys=True)
         with self._connect() as conn:
             conn.execute(

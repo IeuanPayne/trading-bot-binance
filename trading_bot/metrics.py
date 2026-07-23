@@ -1,7 +1,7 @@
-from typing import Any, List, Dict, Optional, Tuple
+from typing import Any
 
 
-def compute_trade_metrics(trades: List[Dict[str, Any]], initial_capital: float = 10000.0) -> Dict[str, Any]:
+def compute_trade_metrics(trades: list[dict[str, Any]], initial_capital: float = 10000.0) -> dict[str, Any]:
     """Compute performance metrics from trades list.
 
     Expects `trades` as list of trade dicts produced by the backtester.
@@ -15,8 +15,8 @@ def compute_trade_metrics(trades: List[Dict[str, Any]], initial_capital: float =
         Dictionary with metrics
     """
     # Build pairs (entry, exit)
-    pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
-    entry: Optional[Dict[str, Any]] = None
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    entry: dict[str, Any] | None = None
     for t in trades:
         if t.get("reason") in ("long_entry", "short_entry", "buy", "sell_short"):
             entry = t
@@ -25,7 +25,7 @@ def compute_trade_metrics(trades: List[Dict[str, Any]], initial_capital: float =
                 pairs.append((entry, t))
                 entry = None
 
-    returns: List[float] = []
+    returns: list[float] = []
     for ent, ex in pairs:
         qty: float = float(ent.get("qty", 0.0))
         entry_price: float = float(ent.get("price", 0.0))
@@ -39,10 +39,10 @@ def compute_trade_metrics(trades: List[Dict[str, Any]], initial_capital: float =
         returns.append(pnl)
 
     total_pnl: float = sum(returns)
-    win_rate: Optional[float] = None
-    avg_return: Optional[float] = None
+    win_rate: float | None = None
+    avg_return: float | None = None
     if returns:
-        wins: List[float] = [r for r in returns if r > 0]
+        wins: list[float] = [r for r in returns if r > 0]
         win_rate = len(wins) / len(returns)
         avg_return = sum(returns) / len(returns)
 
@@ -52,11 +52,9 @@ def compute_trade_metrics(trades: List[Dict[str, Any]], initial_capital: float =
     max_dd: float = 0.0
     for r in returns:
         equity += r
-        if equity > peak:
-            peak = equity
+        peak = max(peak, equity)
         dd: float = (peak - equity) / peak
-        if dd > max_dd:
-            max_dd = dd
+        max_dd = max(max_dd, dd)
 
     return {
         "total_pnl": total_pnl,

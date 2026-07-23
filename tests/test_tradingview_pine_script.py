@@ -4,7 +4,6 @@ import json
 import re
 from pathlib import Path
 
-
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "tradingview_playbit_ema.pine"
 
 

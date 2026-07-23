@@ -1,17 +1,18 @@
 """Metrics persistence and HTML report generation."""
 import csv
 import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+from typing import Any
+
 from loguru import logger
-from typing import List, Dict, Any
 
 
 class TradeHistoryExporter:
     """Export trade history to CSV and JSON formats."""
     
     @staticmethod
-    def export_trades_csv(trades: List[Dict[str, Any]], filepath: str) -> None:
+    def export_trades_csv(trades: list[dict[str, Any]], filepath: str) -> None:
         """Export trades to CSV file.
         
         Args:
@@ -33,7 +34,7 @@ class TradeHistoryExporter:
         logger.info("Exported {} trades to {}", len(trades), output_path)
     
     @staticmethod
-    def export_trades_json(trades: List[Dict[str, Any]], filepath: str) -> None:
+    def export_trades_json(trades: list[dict[str, Any]], filepath: str) -> None:
         """Export trades to JSON file.
         
         Args:
@@ -63,13 +64,13 @@ class MetricsSnapshot:
         self.ema_slower = ema_slower
         self.ema_slowest = ema_slowest
         self.timestamp = datetime.now().isoformat()
-        self.metrics: Dict[str, Any] = {}
+        self.metrics: dict[str, Any] = {}
     
-    def record_metrics(self, metrics: Dict[str, Any]) -> None:
+    def record_metrics(self, metrics: dict[str, Any]) -> None:
         """Record backtest metrics."""
         self.metrics = metrics.copy()
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "timestamp": self.timestamp,
@@ -83,7 +84,7 @@ class MetricsSnapshot:
             **self.metrics,
         }
     
-    def to_csv_row(self) -> Dict[str, Any]:
+    def to_csv_row(self) -> dict[str, Any]:
         """Convert to CSV row."""
         return self.to_dict()
 
@@ -100,8 +101,8 @@ class HTMLReportGenerator:
         ema_slower: int,
         ema_slowest: int,
         timeframe: str,
-        metrics: Dict[str, Any],
-        trades: List[Dict[str, Any]] | None = None,
+        metrics: dict[str, Any],
+        trades: list[dict[str, Any]] | None = None,
         output_file: str | None = None,
     ) -> str:
         """Generate HTML report.
@@ -146,8 +147,8 @@ def _build_html_report(
     ema_slower: int,
     ema_slowest: int,
     timeframe: str,
-    metrics: Dict[str, Any],
-    trades: List[Dict[str, Any]],
+    metrics: dict[str, Any],
+    trades: list[dict[str, Any]],
 ) -> str:
     """Build HTML report content."""
     

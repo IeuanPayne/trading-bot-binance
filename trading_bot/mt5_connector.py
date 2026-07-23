@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 from loguru import logger
@@ -54,7 +54,7 @@ class MT5Connector:
         login: int,
         password: str,
         server: str,
-        terminal_path: Optional[str] = None,
+        terminal_path: str | None = None,
         deviation: int = 20,
         magic: int = 90001,
     ) -> None:
@@ -144,8 +144,7 @@ class MT5Connector:
         if info is None:
             return float(price)
         digits = int(getattr(info, "digits", 0) or 0)
-        if digits < 0:
-            digits = 0
+        digits = max(digits, 0)
         return round(float(price), digits)
 
     def get_stop_distance_constraints(self, symbol: str) -> dict[str, float]:
@@ -175,7 +174,7 @@ class MT5Connector:
             return 0.0
         return float(tick.ask - tick.bid) / pip_size
 
-    def get_net_position(self, symbol: str, magic: Optional[int] = None) -> Optional[MT5Position]:
+    def get_net_position(self, symbol: str, magic: int | None = None) -> MT5Position | None:
         positions = mt5.positions_get(symbol=symbol)
         if not positions:
             return None
@@ -357,7 +356,7 @@ class MT5Connector:
         )
         return {"retcode": int(result.retcode), "order": int(result.order), "deal": int(result.deal)}
 
-    def get_latest_closed_outcome(self, symbol: str, magic: Optional[int] = None, lookback_days: int = 7) -> Optional[MT5ClosedOutcome]:
+    def get_latest_closed_outcome(self, symbol: str, magic: int | None = None, lookback_days: int = 7) -> MT5ClosedOutcome | None:
         """Return latest closed trade outcome for symbol/magic from MT5 deal history."""
         if mt5 is None:
             return None

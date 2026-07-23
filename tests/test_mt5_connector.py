@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from trading_bot.mt5_connector import MT5Connector
 import trading_bot.mt5_connector as mt5_connector_module
+from trading_bot.mt5_connector import MT5Connector
 
 
 class _FakeMT5:

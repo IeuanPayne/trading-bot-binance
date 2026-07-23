@@ -4,10 +4,10 @@ import requests
 from loguru import logger
 
 from .config import (
-    ALERTS_ENABLED,
-    ALERT_SMS_PROVIDER,
-    ALERT_PHONE_TO,
     ALERT_PHONE_FROM,
+    ALERT_PHONE_TO,
+    ALERT_SMS_PROVIDER,
+    ALERTS_ENABLED,
     TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN,
 )

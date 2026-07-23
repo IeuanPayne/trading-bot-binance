@@ -7,16 +7,16 @@ Usage:
 """
 import argparse
 import os
-from dotenv import load_dotenv, find_dotenv
+
+from dotenv import find_dotenv, load_dotenv
 from loguru import logger
 
-# import after load_dotenv to allow module-level env usage
-load_dotenv(find_dotenv())
-
-from trading_bot.binance_connector import BinanceConnector  # noqa: E402
+from trading_bot.binance_connector import BinanceConnector
 
 
 def main():
+    load_dotenv(find_dotenv())
+
     parser = argparse.ArgumentParser(description="Validate Binance API keys and optionally place a test order")
     parser.add_argument("--test-order", action="store_true", help="Place a test order (does not execute a real trade)")
     parser.add_argument("--symbol", default="BTCUSDT")

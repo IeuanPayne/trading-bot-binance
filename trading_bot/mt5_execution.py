@@ -7,10 +7,10 @@ from loguru import logger
 from .alerts import send_alert
 from .backtest import in_session_window, prepare_ema_channel_signals
 from .config import (
-    MAX_SPREAD_PIPS,
     MAX_CONSECUTIVE_LOSSES,
     MAX_DAILY_LOSS_USDT,
     MAX_DRAWDOWN_PCT,
+    MAX_SPREAD_PIPS,
     MAX_TRADES_PER_DAY,
     MT5_ALLOW_MULTIPLE_POSITIONS,
     MT5_BASE_MAGIC,
@@ -24,7 +24,6 @@ from .config import (
 )
 from .mt5_connector import MT5Connector
 from .state_store import TradingStateStore
-
 
 _STAGED_TP_MULTIPLIERS = {
     "tp1": 1.0,
@@ -1008,29 +1007,25 @@ def run_mt5_trade(
         else:
             # Backward compatibility: legacy stop_pips is an absolute price distance.
             sl_distance = stop_pips
-        if effective_tp_pips > 0:
-            tp_distance = effective_tp_pips * pip_size
-        else:
-            tp_distance = sl_distance
+        tp_distance = effective_tp_pips * pip_size if effective_tp_pips > 0 else sl_distance
 
     if lot_per_500_balance > 0:
         raw_volume = lot_per_500_balance * (balance / 500.0)
         normalizer = getattr(connector, "normalize_volume", None)
         volume = float(normalizer(symbol, raw_volume)) if callable(normalizer) else raw_volume
         allocation = balance
+    elif use_risk_pct and effective_sl_pips > 0:
+        risk_amount = balance * (risk_pct / 100.0)
+        volume = connector.volume_from_risk_pips(
+            symbol=symbol,
+            risk_amount=risk_amount,
+            sl_pips=effective_sl_pips,
+            pip_size=pip_size,
+        )
+        allocation = risk_amount
     else:
-        if use_risk_pct and effective_sl_pips > 0:
-            risk_amount = balance * (risk_pct / 100.0)
-            volume = connector.volume_from_risk_pips(
-                symbol=symbol,
-                risk_amount=risk_amount,
-                sl_pips=effective_sl_pips,
-                pip_size=pip_size,
-            )
-            allocation = risk_amount
-        else:
-            allocation = balance * order_pct
-            volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
+        allocation = balance * order_pct
+        volume = connector.volume_from_allocation(symbol, allocation=allocation, entry_price=entry_price)
 
     if volume <= 0:
         logger.error("Calculated MT5 volume is too small for {} (allocation={})", symbol, allocation)

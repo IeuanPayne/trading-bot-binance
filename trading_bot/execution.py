@@ -1,12 +1,12 @@
-import time
 import hashlib
+import time
 from datetime import datetime, timezone
+
 from loguru import logger
 
-from .binance_connector import BinanceConnector
-from .backtest import ema_channel_backtest, in_session_window, prepare_ema_channel_signals
 from .alerts import send_alert
-from .state_store import TradingStateStore
+from .backtest import ema_channel_backtest, in_session_window, prepare_ema_channel_signals
+from .binance_connector import BinanceConnector
 
 # Strategy contract: EMA channel continuation with first-retest confirmation.
 # Long: stacked EMAs, breakout above the channel, retest into the channel,
@@ -16,18 +16,19 @@ from .state_store import TradingStateStore
 # synthetically (entry/stop/tp) in persisted state.
 # Risk exits: stop_pips is absolute price distance (default 0.7), with 1:1 TP.
 from .config import (
+    ALLOW_LIVE_TRADING,
     BINANCE_API_KEY,
     BINANCE_API_SECRET,
     BINANCE_TESTNET,
-    ALLOW_LIVE_TRADING,
-    MAX_SPREAD_PIPS,
-    MAX_PCT_PER_TRADE,
-    MODELED_SPREAD_PIPS,
+    MAX_CONSECUTIVE_LOSSES,
     MAX_DAILY_LOSS_USDT,
     MAX_DRAWDOWN_PCT,
-    MAX_CONSECUTIVE_LOSSES,
+    MAX_PCT_PER_TRADE,
+    MAX_SPREAD_PIPS,
     MAX_TRADES_PER_DAY,
+    MODELED_SPREAD_PIPS,
 )
+from .state_store import TradingStateStore
 
 
 def _symbol_assets(symbol: str) -> tuple[str, str]:
@@ -372,7 +373,7 @@ def _submit_with_retry(fn, retries: int = 3, initial_delay: float = 0.5, action:
 
 def _build_client_order_id(symbol: str, candle_id: str, action: str) -> str:
     """Build deterministic Binance client order IDs for idempotent retries."""
-    payload = f"{symbol}|{candle_id}|{action}".encode("utf-8")
+    payload = f"{symbol}|{candle_id}|{action}".encode()
     digest = hashlib.sha1(payload).hexdigest()[:20]
     return f"tb_{action[:8]}_{digest}"
 
@@ -433,10 +434,7 @@ def _record_exit_risk_metrics(state_store: TradingStateStore, symbol: str, exit_
         return
 
     side = str(position.get("side", "LONG")).upper()
-    if side == "SHORT":
-        pnl = (entry_price - exit_price) * qty
-    else:
-        pnl = (exit_price - entry_price) * qty
+    pnl = (entry_price - exit_price) * qty if side == "SHORT" else (exit_price - entry_price) * qty
     risk_state = state_store.get_runtime_state("risk_state", default={}) or {}
     if risk_state.get("day") != _today_key():
         # Keep daily boundaries consistent even if called after midnight rollover.

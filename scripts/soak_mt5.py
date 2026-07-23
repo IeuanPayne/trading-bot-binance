@@ -20,28 +20,28 @@ from trading_bot.config import (
     LONDON_END,
     LONDON_START,
     MAX_SPREAD_PIPS,
+    MT5_ATR_PERIOD,
     MT5_AUTO_MAGIC,
     MT5_BASE_MAGIC,
     MT5_DYNAMIC_SLTP,
     MT5_LOGIN,
     MT5_PASSWORD,
-    MT5_ATR_PERIOD,
     MT5_RISK_PCT,
-    MT5_SIGNAL_DEBUG,
     MT5_SERVER,
+    MT5_SIGNAL_DEBUG,
     MT5_SL_ATR_MULT,
-    MT5_SLIPPAGE,
     MT5_SL_PIPS,
+    MT5_SLIPPAGE,
     MT5_STATE_FILE,
     MT5_SYMBOL,
     MT5_TERMINAL_PATH,
-    MT5_TRAILING_STOP_ENABLED,
-    MT5_TRAIL_ACTIVATE_R,
-    MT5_TRAIL_ATR_MULT,
-    MT5_TRAIL_MIN_STEP_ATR,
-    MT5_TRAIL_ATR_PERIOD,
     MT5_TP_ATR_MULT,
     MT5_TP_PIPS,
+    MT5_TRAIL_ACTIVATE_R,
+    MT5_TRAIL_ATR_MULT,
+    MT5_TRAIL_ATR_PERIOD,
+    MT5_TRAIL_MIN_STEP_ATR,
+    MT5_TRAILING_STOP_ENABLED,
     MT5_USE_RISK_PCT,
     NEWYORK_END,
     NEWYORK_START,
@@ -53,7 +53,6 @@ from trading_bot.config import (
 from trading_bot.mt5_connector import MT5Connector
 from trading_bot.mt5_execution import run_mt5_trade
 from trading_bot.state_store import TradingStateStore
-
 
 logger.add("trading_bot.log", rotation="10 MB", retention="7 days", level="DEBUG")
 

@@ -1,12 +1,12 @@
 """Grid backtest runner — test multiple EMA and timeframe combinations."""
 import csv
-from pathlib import Path
 from datetime import datetime
-from loguru import logger
-from typing import Optional
+from pathlib import Path
 
-from .binance_connector import BinanceConnector
+from loguru import logger
+
 from .backtest import ema_channel_backtest
+from .binance_connector import BinanceConnector
 from .config import (
     EMA1_LEN,
     EMA2_LEN,
@@ -28,8 +28,8 @@ from .config import (
 
 def run_grid_backtest(
     symbol: str = "BTCUSDT",
-    ema_pairs: Optional[list] = None,
-    timeframes: Optional[list] = None,
+    ema_pairs: list | None = None,
+    timeframes: list | None = None,
     limit: int = 1000,
     ema1_len: int = EMA1_LEN,
     ema2_len: int = EMA2_LEN,
@@ -44,7 +44,7 @@ def run_grid_backtest(
     session_tz_offset: int = SESSION_TZ_OFFSET,
     modeled_spread_pips: float = MODELED_SPREAD_PIPS,
     max_spread_pips: float = MAX_SPREAD_PIPS,
-    output_file: Optional[str] = None,
+    output_file: str | None = None,
 ):
     """Run backtest for multiple EMA and timeframe combinations.
     

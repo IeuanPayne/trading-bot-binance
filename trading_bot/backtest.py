@@ -1,5 +1,6 @@
+from typing import Any
+
 import pandas as pd
-from typing import Any, List, Dict
 
 from .metrics import compute_trade_metrics
 
@@ -27,10 +28,7 @@ def in_session_window(
     ts = pd.Timestamp(timestamp)
     if pd.isna(ts):
         return True
-    if ts.tzinfo is None:
-        ts = ts.tz_localize("UTC")
-    else:
-        ts = ts.tz_convert("UTC")
+    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
 
     server_ts = ts + pd.Timedelta(hours=session_tz_offset)
     hour = int(server_ts.hour)
@@ -190,7 +188,7 @@ def ema_channel_backtest(
     stop_pips: float = 0.7,
     initial_capital: float = 10000.0,
     pct_per_trade: float = 0.01,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if stop_pips <= 0:
         raise ValueError("stop_pips must be > 0 and represents an absolute price distance (e.g. 0.7)")
     if modeled_spread_pips < 0:
@@ -211,7 +209,7 @@ def ema_channel_backtest(
     entry_price = 0.0
     stop_price = 0.0
     take_profit = 0.0
-    trades: List[Dict] = []
+    trades: list[dict] = []
 
     for i in range(1, len(df) - 1):
         if direction != 0:
