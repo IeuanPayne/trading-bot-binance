@@ -208,6 +208,8 @@ def test_process_tradingview_signal_stores_staged_exit_state(tmp_path):
     assert position["tp4"] == 170.0
     assert position["moved_to_be"] is False
     assert position["trailing_active"] is False
+    assert position["timeframe"] == "15m"
+    assert position["magic"] == 20260644
 
 
 def test_process_tradingview_signal_stores_timeframe_magic_for_5m(tmp_path):
@@ -226,6 +228,29 @@ def test_process_tradingview_signal_stores_timeframe_magic_for_5m(tmp_path):
 
     assert result["status"] == "filled"
     assert connector.net_position_magic_calls == [None]
+
+    store = TradingStateStore(str(tmp_path / "tv_state.db"))
+    position = store.get_position("XAUUSD")
+    assert position is not None
+    assert position["timeframe"] == "5m"
+    assert position["magic"] == 20260634
+
+
+def test_process_tradingview_signal_stores_timeframe_magic_for_5m_with_staged_exit(tmp_path):
+    connector = _FakeConnector()
+    settings = _staged_settings(str(tmp_path / "tv_state.db"))
+    signal = {
+        "signal_id": "tf5m-stage-001",
+        "strategy_id": "playbit",
+        "symbol": "XAUUSD",
+        "timeframe": "5m",
+        "side": "SELL",
+        "timestamp": "2026-07-16T10:40:00Z",
+    }
+
+    result = process_tradingview_signal(connector, signal, settings)
+
+    assert result["status"] == "filled"
 
     store = TradingStateStore(str(tmp_path / "tv_state.db"))
     position = store.get_position("XAUUSD")

@@ -721,10 +721,20 @@ def _manage_existing_mt5_position(
             else:
                 logger.warning("MT5 trailing stop update skipped for {}: {}", symbol, exc)
 
+    tracked = tracked_position or {}
+    tracked_timeframe = str(tracked.get("timeframe", ""))
+    tracked_signal_id = str(tracked.get("signal_id", ""))
+
     if entry_mode:
         logger.info("MT5 position already open for {} (side={}); no new entry.", symbol, position.side)
     else:
-        logger.debug("MT5 management: existing position for {} (side={}) remains open.", symbol, position.side)
+        logger.debug(
+            "MT5 management: existing position for {} (side={}) remains open. origin_timeframe={} origin_signal_id={}",
+            symbol,
+            position.side,
+            tracked_timeframe,
+            tracked_signal_id,
+        )
     return True
 
 

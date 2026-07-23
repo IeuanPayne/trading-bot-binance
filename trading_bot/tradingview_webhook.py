@@ -265,8 +265,11 @@ def process_tradingview_signal(
         )
         position_state.update(
             {
+                "timeframe": timeframe,
+                "magic": signal_magic,
                 "updated_at": signal["timestamp"],
                 "source": "tradingview",
+                "strategy_id": signal["strategy_id"],
                 "signal_id": signal["signal_id"],
             }
         )
@@ -285,14 +288,17 @@ def process_tradingview_signal(
     state_store.mark_signal_processed(symbol, signal_key, {"action": side.lower(), "qty": volume})
 
     logger.info(
-        "TradingView signal executed: symbol={} side={} volume={} entry={} sl={} tp={} signal_id={}",
+        "TradingView signal executed: symbol={} timeframe={} side={} volume={} entry={} sl={} tp={} strategy_id={} signal_id={} magic={}",
         symbol,
+        timeframe,
         side,
         volume,
         entry_price,
         sl,
         tp,
+        signal["strategy_id"],
         signal["signal_id"],
+        signal_magic,
     )
 
     return {
