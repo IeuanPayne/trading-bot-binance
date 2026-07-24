@@ -356,7 +356,13 @@ class MT5Connector:
         )
         return {"retcode": int(result.retcode), "order": int(result.order), "deal": int(result.deal)}
 
-    def get_latest_closed_outcome(self, symbol: str, magic: int | None = None, lookback_days: int = 7) -> MT5ClosedOutcome | None:
+    def get_latest_closed_outcome(
+        self,
+        symbol: str,
+        magic: int | None = None,
+        lookback_days: int = 7,
+        not_before: str | None = None,
+    ) -> MT5ClosedOutcome | None:
         """Return latest closed trade outcome for symbol/magic from MT5 deal history."""
         if mt5 is None:
             return None
@@ -367,6 +373,18 @@ class MT5Connector:
         if not deals:
             return None
 
+        not_before_dt = None
+        if not_before:
+            candidate = str(not_before).replace("Z", "+00:00")
+            try:
+                not_before_dt = datetime.fromisoformat(candidate)
+                if not_before_dt.tzinfo is None:
+                    not_before_dt = not_before_dt.replace(tzinfo=timezone.utc)
+                else:
+                    not_before_dt = not_before_dt.astimezone(timezone.utc)
+            except ValueError:
+                not_before_dt = None
+
         deal_entry_out = int(getattr(mt5, "DEAL_ENTRY_OUT", 1))
         deal_entry_out_by = int(getattr(mt5, "DEAL_ENTRY_OUT_BY", 3))
         deal_entry_in = int(getattr(mt5, "DEAL_ENTRY_IN", 0))
@@ -375,6 +393,12 @@ class MT5Connector:
         filtered = [d for d in deals if str(getattr(d, "symbol", "")) == symbol]
         if magic is not None:
             filtered = [d for d in filtered if int(getattr(d, "magic", 0)) == int(magic)]
+        if not_before_dt is not None:
+            filtered = [
+                d
+                for d in filtered
+                if datetime.fromtimestamp(int(getattr(d, "time", 0) or 0), tz=timezone.utc) >= not_before_dt
+            ]
         if not filtered:
             return None
 

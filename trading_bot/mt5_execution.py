@@ -642,7 +642,11 @@ def _manage_existing_mt5_position(
         outcome_fetcher = getattr(connector, "get_latest_closed_outcome", None)
         if callable(outcome_fetcher):
             try:
-                outcome = outcome_fetcher(symbol=symbol, magic=magic)
+                outcome = outcome_fetcher(
+                    symbol=symbol,
+                    magic=magic,
+                    not_before=str(tracked_position.get("updated_at", "")) or None,
+                )
             except Exception as exc:
                 logger.warning("Unable to fetch MT5 closed outcome for {}: {}", symbol, exc)
 

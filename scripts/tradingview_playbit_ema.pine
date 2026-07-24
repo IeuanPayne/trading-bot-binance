@@ -80,9 +80,8 @@ confirmDown = false
 
 if barstate.isconfirmed
     if signalMode == "EMA Touch"
-        useAnchorBandTouch = touchEmaSource == "Anchor High" or touchEmaSource == "Anchor Close"
-        touchedEma = useAnchorBandTouch ? (low <= anchorBandTop and high >= anchorBandBottom) : (low <= touchEma and high >= touchEma)
-        referenceLine = useAnchorBandTouch ? anchorClose : touchEma
+        touchedEma = low <= touchEma and high >= touchEma
+        referenceLine = touchEma
         if touchedEma
             if close > referenceLine
                 longSignal := true
